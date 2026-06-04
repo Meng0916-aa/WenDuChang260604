@@ -64,3 +64,17 @@ Then run Python scripts in the active pytorch environment.
   are fit on the TRAINING split only and saved to `results/checkpoints/normalizer.npz`.
 - SIMULATED data (from `simulation` in the config) is for code-chain validation ONLY and
   must never be reported as an experimental conclusion.
+
+## GitHub Sync Rule
+Repo: https://github.com/Meng0916-aa/WenDuChang260604 (already exists; remote branch `main`).
+After completing a task, sync with `tools/safe_git_sync.ps1` (or the manual flow below).
+- **NEVER** use `git add .`.
+- Allowed paths (the ONLY paths that may be staged):
+  `README.md`, `CLAUDE.md`, `requirements.txt`, `configs`, `src`, `scripts`, `tests`,
+  `docs`, `tools`, `.gitignore`, `.vscode/settings.json`.
+- **NEVER** commit `data/`, `results/`, or these extensions:
+  `*.xtherm *.npy *.npz *.h5 *.hdf5 *.pt *.pth *.ckpt *.onnx *.png *.jpg *.jpeg *.pdf
+  *.avi *.mp4 *.csv *.xlsx *.xls`.
+- Before every commit run `git status --short`; if any data/results/weights/figures/tables
+  are staged, STOP and do not commit.
+- If there is nothing to commit, output exactly: `No source/document changes to commit.`
