@@ -1,0 +1,10 @@
+﻿{
+  "terminal.integrated.env.windows": {
+    "KMP_DUPLICATE_LIB_OK": "TRUE"
+  },
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests"
+  ]
+}

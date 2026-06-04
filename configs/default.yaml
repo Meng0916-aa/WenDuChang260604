@@ -1,0 +1,155 @@
+# ============================================================
+# Magnetic-Field-Assisted Laser Cladding
+# Default Configuration
+# ============================================================
+
+# Global random seed (reproducibility — see src/utils/seed.py)
+seed: 42
+
+# --- Paths ---
+paths:
+  raw_xtherm: "data/raw_xtherm"
+  exported_csv: "data/exported/csv"
+  exported_npy: "data/exported/npy"
+  exported_h5: "data/exported/h5"
+  processed_matrix: "data/processed/matrix"
+  processed_roi: "data/processed/roi"
+  processed_thermal_cycle: "data/processed/thermal_cycle"
+  processed_samples: "data/processed/samples"
+  metadata: "data/metadata"
+  results_figures: "results/figures"
+  results_tables: "results/tables"
+  results_logs: "results/logs"
+  results_checkpoints: "results/checkpoints"
+
+# --- Data ---
+data:
+  temperature_scale: 0.1      # raw_value -> Celsius: T = raw * scale
+  unit: "Celsius"
+  dtype: "float32"
+  shape_format: "NCHW"        # N = frames, H = height, W = width
+  valid_range: [0.0, 3000.0]  # valid Celsius range
+  # If exported matrices are already in Celsius, set true so 02 does NOT
+  # divide by 10 again. If they are still raw digital counts, set false.
+  exported_is_celsius: false
+  metadata_file: "experiments.csv"   # under paths.metadata (optional)
+
+# --- ROI ---
+roi:
+  enabled: true
+  # Pixel coordinates [x1, y1, x2, y2] — override per experiment
+  bounds: [100, 80, 400, 350]
+  save_intermediate: true
+
+# --- Thermal Cycle ---
+thermal_cycle:
+  tmax: true
+  center_average_radius: 5          # pixel radius around frame center
+  hot_zone_threshold_celsius: 800.0
+  output_format: "csv"
+
+# --- Dataset ---
+dataset:
+  input_window: 30          # number of past frames
+  predict_window: 10        # number of future frames to predict
+  step: 1                   # stride between samples
+  val_ratio: 0.15
+  test_ratio: 0.15
+  split_by_experiment: true
+  shuffle_train: true
+  # Which thermal-cycle curves become input features (subset of:
+  # tmax | center_average | hot_zone_average). The FIRST entry is the
+  # prediction target; the rest are auxiliary input features.
+  feature_columns: ["tmax"]
+  samples_file: "window_samples.npz"   # saved under paths.processed_samples
+
+# --- Normalization ---
+# Statistics are fit on the TRAINING split only and saved to
+# results/checkpoints/normalizer.npz. Evaluation loads them and inverse-
+# transforms predictions back to Celsius before computing metrics.
+normalization:
+  enabled: true
+  method: "standard"        # standard (z-score). Only "standard" is implemented.
+  eps: 1.0e-8               # numerical floor for per-channel std
+
+# --- Model ---
+model:
+  name: "lstm"              # lstm | tcn | transformer | lstm_tcn
+  input_dim: 1              # channels per pixel (1 = temperature only)
+  hidden_dim: 64
+  num_layers: 2
+  dropout: 0.2
+  # LSTM-specific
+  lstm:
+    bidirectional: true
+  # TCN-specific
+  tcn:
+    kernel_size: 3
+    num_channels: [64, 64, 64, 64]
+  # Transformer-specific
+  transformer:
+    nhead: 4
+    dim_feedforward: 256
+
+# --- Training ---
+training:
+  loss: "mse"              # main loss (mse). mae also available.
+  batch_size: 32
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  patience: 15              # early stopping patience
+  gradient_clip: 1.0
+  device: "auto"            # auto | cpu | cuda (auto -> cuda if available)
+
+# --- Evaluation ---
+evaluation:
+  metrics: ["rmse", "mae", "waveform_similarity"]
+  per_frame_metrics: true
+  save_predictions: true
+  predictions_file: "lstm_predictions.csv"   # under results_tables
+  metrics_file: "lstm_metrics.csv"
+  metrics_by_group_file: "lstm_metrics_by_magnetic_group.csv"
+  group_by_experiment: true
+
+# --- Magnetic Field Groups ---
+magnetic_field_groups:
+  with_magnetic_field:
+    experiment_ids: []
+    label: "with_B"
+  without_magnetic_field:
+    experiment_ids: []
+    label: "without_B"
+
+# --- Process Parameters (optional auxiliary inputs) ---
+# When enabled, per-experiment scalars (e.g. laser power, scan speed,
+# magnetic-field flag) are concatenated onto every input time step,
+# enlarging the model input_dim. Disabled by default.
+process_params:
+  enabled: false
+  columns: []              # e.g. ["laser_power", "scan_speed", "magnetic_field"]
+  by_experiment: {}        # e.g. { SIM_000: [1500.0, 5.0, 1.0], ... }
+
+# --- Simulation (fallback self-test data) ---
+# Only used by 05_build_window_dataset.py when no real thermal-cycle CSVs
+# exist under paths.processed_thermal_cycle. Generates clearly-labelled
+# SIMULATED curves so the training/eval code chain can be exercised.
+# Simulated numbers are NOT experimental results.
+simulation:
+  enabled: true
+  n_experiments: 6
+  n_frames: 400
+  seed: 42
+  # Reminder: SIMULATED data is ONLY for validating the code chain. It does
+  # NOT represent any real experiment. Figures/tables derived from it are
+  # tagged SIMULATED and must not be cited as experimental conclusions.
+
+# --- Visualization ---
+visualization:
+  output_dir: "results/figures"   # mirrors paths.results_figures
+  dpi: 200
+  save_png: true
+  save_pdf: true
+  # Number of test samples to plot true/pred/error curves for.
+  num_curve_samples: 3
+  figsize: [8, 4]

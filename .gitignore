@@ -1,0 +1,43 @@
+# ---- Data (never upload raw or processed temperature data) ----
+data/raw_xtherm/
+data/exported/
+data/processed/
+
+# ---- Results (figures, tables, logs, checkpoints) ----
+results/
+
+# ---- Large / binary data formats ----
+*.xtherm
+*.npy
+*.npz
+*.h5
+*.hdf5
+
+# ---- Model checkpoints ----
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# ---- Logs ----
+*.log
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- Environments ----
+.env
+.venv/
+venv/
+
+*.csv
+*.xlsx
+*.xls
+.claude/
+scripts/02_convert_xtherm_to_npy.py
+scripts/05_train_model.py
+scripts/06_evaluate_model.py
+scripts/07_plot_results.py
