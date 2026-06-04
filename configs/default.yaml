@@ -169,3 +169,15 @@ visualization:
   # Number of test samples to plot true/pred/error curves for.
   num_curve_samples: 3
   figsize: [8, 4]
+
+# --- Temporal Feature Analysis (script 09) ---
+# Extracts time-series features from thermal-cycle curves (output of script 04)
+# for Chapter-3 analysis. Independent of the dataset/training frame settings.
+temporal_analysis:
+  frame_rate_fps: 1000          # frames per second; sets the time axis (seconds)
+  smooth_window: 5              # moving-average window (<=1 disables smoothing)
+  dwell_threshold: 800.0        # Celsius; dwell time counts frames >= this
+  max_examples_to_plot: 3       # number of typical curve+derivative plots
+  input_dir: "data/processed/thermal_cycle"
+  output_table: "results/tables/temporal_features.csv"
+  output_figure_dir: "results/figures"
