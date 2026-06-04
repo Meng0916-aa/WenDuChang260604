@@ -39,8 +39,10 @@ def main():
     out_dir = paths["processed_thermal_cycle"]
     os.makedirs(out_dir, exist_ok=True)
 
-    radius = int(tcfg.get("center_average_radius", 5))
-    threshold = float(tcfg.get("hot_zone_threshold_celsius", 800.0))
+    # Accept both the descriptive keys and the shorter aliases.
+    radius = int(tcfg.get("center_window", tcfg.get("center_average_radius", 5)))
+    threshold = float(tcfg.get("hot_zone_threshold",
+                               tcfg.get("hot_zone_threshold_celsius", 800.0)))
 
     files = sorted(glob.glob(os.path.join(in_dir, "*.npy")))
     if not files:
@@ -48,7 +50,7 @@ def main():
         return
 
     print(f"[04] input: {len(files)} ROI file(s) from {in_dir}")
-    print(f"[04] center_radius={radius}px hot_zone_threshold={threshold}C")
+    print(f"[04] center_window={radius}px hot_zone_threshold={threshold}C")
 
     n_done = 0
     for filepath in files:

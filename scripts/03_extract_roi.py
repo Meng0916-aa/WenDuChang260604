@@ -24,6 +24,28 @@ from utils.config import load_config
 from preprocess.roi import crop_roi, validate_bounds
 
 
+def _resolve_bounds(rcfg: dict) -> tuple:
+    """
+    Resolve ROI to (x1, y1, x2, y2) inclusive pixel bounds (x=col, y=row).
+
+    Preferred: top/left/height/width. Falls back to the legacy `bounds`
+    list when height or width is missing/None.
+    """
+    top = rcfg.get("top")
+    left = rcfg.get("left")
+    height = rcfg.get("height")
+    width = rcfg.get("width")
+
+    if height is not None and width is not None and top is not None and left is not None:
+        x1 = int(left)
+        y1 = int(top)
+        x2 = int(left) + int(width) - 1
+        y2 = int(top) + int(height) - 1
+        return (x1, y1, x2, y2)
+
+    return tuple(rcfg.get("bounds", [0, 0, 0, 0]))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
@@ -43,7 +65,7 @@ def main():
         return
 
     enabled = bool(rcfg.get("enabled", True))
-    bounds = tuple(rcfg.get("bounds", [0, 0, 0, 0]))
+    bounds = _resolve_bounds(rcfg)
     print(f"[03] input: {len(files)} matrix file(s) from {in_dir}")
     print(f"[03] roi.enabled={enabled} bounds(x1,y1,x2,y2)={bounds}")
 

@@ -32,12 +32,24 @@ data:
   # If exported matrices are already in Celsius, set true so 02 does NOT
   # divide by 10 again. If they are still raw digital counts, set false.
   exported_is_celsius: false
-  metadata_file: "experiments.csv"   # under paths.metadata (optional)
+  # Real-data shape contract enforced by 02_convert_exported_to_npy.py.
+  # Inputs that violate this raise an explicit error (no silent reshape).
+  expected_ndim: 3            # require N x H x W (a single H x W frame is auto-expanded)
+  expected_axis_order: "NHW"  # documents the axis meaning of the exported array
+  # Metadata lives in a Markdown template (docs/metadata_template.md) so it is
+  # NOT swept up by the *.csv gitignore rule. This path is optional.
+  metadata_file: "experiments.md"   # under paths.metadata (optional)
 
 # --- ROI ---
 roi:
   enabled: true
-  # Pixel coordinates [x1, y1, x2, y2] — override per experiment
+  # Preferred: top/left/height/width (pixels). top=row, left=column.
+  # If height or width is null, the legacy `bounds` field is used instead.
+  top: 80
+  left: 100
+  height: 270        # rows kept: top .. top+height-1
+  width: 300         # cols kept: left .. left+width-1
+  # Legacy fallback: pixel coordinates [x1, y1, x2, y2] (x=col, y=row).
   bounds: [100, 80, 400, 350]
   save_intermediate: true
 
@@ -45,8 +57,12 @@ roi:
 thermal_cycle:
   tmax: true
   center_average_radius: 5          # pixel radius around frame center
+  center_window: 5                  # alias of center_average_radius (px)
   hot_zone_threshold_celsius: 800.0
+  hot_zone_threshold: 800.0         # alias of hot_zone_threshold_celsius (C)
   output_format: "csv"
+  # Columns written to each thermal-cycle CSV (besides the frame index).
+  output_columns: ["tmax", "center_average", "hot_zone_average"]
 
 # --- Dataset ---
 dataset:
