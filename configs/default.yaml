@@ -36,6 +36,11 @@ data:
   # Inputs that violate this raise an explicit error (no silent reshape).
   expected_ndim: 3            # require N x H x W (a single H x W frame is auto-expanded)
   expected_axis_order: "NHW"  # documents the axis meaning of the exported array
+  expected_frame_axis: 0      # frames MUST be axis 0 (N x H x W). Only 0 is supported.
+  expected_height: null       # if set, axis 1 (H) must equal this exactly
+  expected_width: null        # if set, axis 2 (W) must equal this exactly
+  min_frames: 2               # a multi-frame array with N < this is rejected
+                              # (a genuine single H x W frame is still allowed)
   # Metadata lives in a Markdown template (docs/metadata_template.md) so it is
   # NOT swept up by the *.csv gitignore rule. This path is optional.
   metadata_file: "experiments.md"   # under paths.metadata (optional)

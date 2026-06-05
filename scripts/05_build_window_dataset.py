@@ -86,12 +86,30 @@ def _simulate_thermal_cycles(config: dict) -> list:
 # Real CSV loading
 # ---------------------------------------------------------------------------
 
-def _load_real_cycles(config: dict) -> list:
-    """Load thermal-cycle CSVs into [(exp_id, cycles_dict), ...]."""
-    in_dir = config["paths"]["processed_thermal_cycle"]
+class MixedDataError(RuntimeError):
+    """Raised when SIM_ and real thermal-cycle CSVs coexist in one directory."""
+
+
+def _classify_cycle_csvs(in_dir: str) -> tuple:
+    """
+    List thermal-cycle CSVs and split them into (real, simulated) by filename.
+
+    A file whose basename starts with 'SIM_' is simulated; everything else is
+    treated as a real experiment.
+
+    Returns:
+        (real_paths, sim_paths) — both sorted lists.
+    """
     csv_files = sorted(glob.glob(os.path.join(in_dir, "*.csv")))
+    sim = [p for p in csv_files if os.path.basename(p).startswith("SIM_")]
+    real = [p for p in csv_files if not os.path.basename(p).startswith("SIM_")]
+    return real, sim
+
+
+def _load_cycle_csvs(paths: list) -> list:
+    """Load given thermal-cycle CSV paths into [(exp_id, cycles_dict), ...]."""
     experiments = []
-    for path in csv_files:
+    for path in paths:
         arr = np.genfromtxt(path, delimiter=",", names=True, dtype=np.float32)
         exp_id = os.path.splitext(os.path.basename(path))[0]
         cycles = {col: np.asarray(arr[col], dtype=np.float32)
@@ -179,20 +197,40 @@ def main():
     pred_len = int(dcfg["predict_window"])
     step = int(dcfg.get("step", 1))
 
-    # 1. Acquire curves (real if available, else simulated)
-    experiments = _load_real_cycles(config)
-    simulated = False
-    if not experiments:
-        if config.get("simulation", {}).get("enabled", False):
-            experiments = _simulate_thermal_cycles(config)
-            simulated = True
-        else:
-            raise FileNotFoundError(
-                "No thermal-cycle CSVs found and simulation.enabled is false. "
-                f"Populate {config['paths']['processed_thermal_cycle']} first.")
+    # 1. Acquire curves. Classify existing CSVs into real vs SIMULATED.
+    in_dir = config["paths"]["processed_thermal_cycle"]
+    real_paths, sim_paths = _classify_cycle_csvs(in_dir)
+
+    if real_paths and sim_paths:
+        # Mixing real and simulated data would silently corrupt results.
+        raise MixedDataError(
+            f"Found BOTH real and SIMULATED thermal-cycle CSVs in {in_dir}: "
+            f"{len(real_paths)} real + {len(sim_paths)} SIM_*.csv. "
+            f"Manually archive or remove the SIM_*.csv files before importing "
+            f"real data (this script never deletes anything). "
+            f"SIM files: {[os.path.basename(p) for p in sim_paths[:5]]}"
+            f"{' ...' if len(sim_paths) > 5 else ''}"
+        )
+
+    if real_paths:
+        experiments = _load_cycle_csvs(real_paths)
+        simulated = False
+        print(f"[05] input: {len(experiments)} REAL thermal-cycle experiments "
+              f"from {in_dir}")
+    elif sim_paths:
+        experiments = _load_cycle_csvs(sim_paths)
+        simulated = True
+        print(f"[05] input: {len(experiments)} SIMULATED thermal-cycle "
+              f"experiments (SIM_*.csv) from {in_dir}")
+        print("[05] WARNING: SIMULATED data — code-chain validation only, "
+              "NOT experimental data.")
+    elif config.get("simulation", {}).get("enabled", False):
+        experiments = _simulate_thermal_cycles(config)
+        simulated = True
     else:
-        print(f"[05] input: {len(experiments)} real thermal-cycle experiments "
-              f"from {config['paths']['processed_thermal_cycle']}")
+        raise FileNotFoundError(
+            "No thermal-cycle CSVs found and simulation.enabled is false. "
+            f"Populate {in_dir} first.")
 
     # 2. Assemble per-experiment feature arrays + optional process params
     exp_ids = [e[0] for e in experiments]

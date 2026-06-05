@@ -70,11 +70,48 @@ python scripts/05_build_window_dataset.py --config configs/default.yaml
 python scripts/06_train_model.py --config configs/default.yaml
 python scripts/07_evaluate_model.py --config configs/default.yaml
 python scripts/08_plot_results.py --config configs/default.yaml
+python scripts/09_analyze_temporal_features.py --config configs/default.yaml
 ```
 
 If no real exported data exists, step **05** generates a small **SIMULATED** dataset so the
 training/evaluation/plotting chain (05→08) runs end-to-end. Simulated results only prove the
 code chain works — they are **not** experimental conclusions.
+
+## Recommended Workflows
+
+Two independent analyses share the same 01→04 preprocessing:
+
+**A. Temporal feature analysis** — `01 → 02 → 03 → 04 → 09`
+
+```powershell
+python scripts/01_check_raw_data.py --config configs/default.yaml
+python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
+python scripts/03_extract_roi.py --config configs/default.yaml
+python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
+python scripts/09_analyze_temporal_features.py --config configs/default.yaml
+```
+
+Produces `results/tables/temporal_features.csv` and temporal feature figures
+(`temporal_feature_overview.*`, `temporal_curve_<id>.*`) under `results/figures/`.
+See `docs/temporal_analysis.md`.
+
+**B. LSTM prediction modeling** — `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
+
+```powershell
+python scripts/01_check_raw_data.py --config configs/default.yaml
+python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
+python scripts/03_extract_roi.py --config configs/default.yaml
+python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
+python scripts/05_build_window_dataset.py --config configs/default.yaml
+python scripts/06_train_model.py --config configs/default.yaml
+python scripts/07_evaluate_model.py --config configs/default.yaml
+python scripts/08_plot_results.py --config configs/default.yaml
+```
+
+> **SIMULATED data caveat:** if inputs are `SIM_*.csv` (the script-05 fallback), every
+> output table and figure is tagged `SIMULATED`. Such results only validate the code chain
+> and must **never** be cited as experimental conclusions. Archive `SIM_*.csv` before
+> importing real data (see `docs/after_experiment_checklist.md`).
 
 ## Pipeline Scripts
 
@@ -88,6 +125,7 @@ code chain works — they are **not** experimental conclusions.
 | `06_train_model.py` | samples `.npz` | `best_lstm.pt`, `normalizer.npz`, `training_log.csv`, `used_config.yaml` |
 | `07_evaluate_model.py` | samples + checkpoint | `lstm_metrics.csv`, `lstm_predictions.csv`, (group metrics) |
 | `08_plot_results.py` | tables | figures (`.png` + `.pdf`) |
+| `09_analyze_temporal_features.py` | `data/processed/thermal_cycle` | `temporal_features.csv` + temporal feature figures |
 
 ## Output Files
 
@@ -100,7 +138,8 @@ results/tables/lstm_metrics.csv                        <- overall test metrics (
 results/tables/lstm_predictions.csv                    <- per-sample/step predictions
 results/tables/lstm_metrics_by_experiment.csv          <- per-experiment metrics
 results/tables/lstm_metrics_by_magnetic_group.csv      <- per-group metrics (if grouping set)
-results/figures/*.png, *.pdf                           <- curves & metric charts
+results/tables/temporal_features.csv                   <- temporal features per experiment (script 09)
+results/figures/*.png, *.pdf                           <- curves, metric charts, temporal figures
 ```
 
 All metrics are computed on **inverse-normalized Celsius** values.

@@ -46,14 +46,38 @@ The raw→Celsius conversion is `temperature = raw_value / 10.0`
 > leaves temperatures ~10× too high. Check the printed `min/max ... C` in the
 > `02` output against physically plausible values.
 
-## 5. Shape is enforced (no silent reshape)
+## 5. Shape is enforced (N × H × W, no silent reshape)
 
-Script `02` enforces the `N × H × W` contract (`data.expected_ndim = 3`):
+Script `02` enforces the `N × H × W` axis order (`data.expected_ndim = 3`,
+`data.expected_frame_axis = 0`) — **frames must be the first axis**:
 
 - A single `H × W` frame is auto-expanded to `(1, H, W)`.
-- Any other ndim, or a degenerate spatial dimension, raises an explicit error
-  naming the file and shape (e.g. an `H × W × N` array is rejected — re-export
-  with frames on the first axis).
+- Any other ndim, a degenerate spatial dimension, or too few frames on axis 0
+  (`data.min_frames`, default 2) raises an explicit error of the form
+  `expected N x H x W, got shape=...`.
+- Optionally pin the spatial size with `data.expected_height` /
+  `data.expected_width` (default `null` = unchecked); a mismatch is rejected.
+
+> **If your software exports `H × W × N` (frames last), the script does NOT
+> transpose for you** — it raises an error on purpose. Convert it to `N × H × W`
+> first, e.g.:
+>
+> ```python
+> import numpy as np
+> a = np.load("export_HWN.npy")        # shape (H, W, N)
+> np.save("export_NHW.npy", np.moveaxis(a, -1, 0))   # -> (N, H, W)
+> ```
+>
+> Re-export / convert and place the corrected `N × H × W` file in
+> `data/exported/npy/`.
+
+## 5b. Archive leftover SIMULATED data before importing
+
+Before importing real data, make sure `data/processed/thermal_cycle/` contains
+**no** `SIM_*.csv` files (the script-05 fallback). Script `05` now **refuses to
+run** if real and `SIM_*.csv` files are mixed in that directory, and script `01`
+warns when `SIM_*.csv` is present. Manually archive or delete the `SIM_*.csv`
+files first (the scripts never delete anything for you).
 
 ## 6. File naming convention
 

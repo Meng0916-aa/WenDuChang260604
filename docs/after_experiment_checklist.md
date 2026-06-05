@@ -15,11 +15,16 @@ image). Pseudo-color PNG/JPG/TIFF heatmaps are not valid model input.
 ## 2. Recommended save format
 
 - Format: `.npy` (preferred)
-- Shape: **N × H × W** (N frames, H height, W width)
+- Shape: **N × H × W** (N frames first, then height, then width)
 - dtype: `float32`
 - Unit: Celsius
 
 (`.csv` and `.h5` are also accepted — see `docs/real_data_import.md`.)
+
+> **Axis order matters.** Script `02` requires frames on axis 0 and will NOT
+> transpose for you — it raises `expected N x H x W, got shape=...` otherwise.
+> If your software exports **`H × W × N`** (frames last), convert first:
+> `np.save("out_NHW.npy", np.moveaxis(arr, -1, 0))`.
 
 ## 3. Back up the raw `.xtherm`
 
@@ -58,8 +63,8 @@ if the deposition region moved between experiments.
 
 If `data/processed/thermal_cycle/` contains `SIM_*.csv` files (leftover from a
 code-chain test), **manually archive or remove them** before processing real
-data, so simulated curves are not mixed with real experiments. Running
-`python scripts/01_check_raw_data.py --config configs/default.yaml` warns when
+data. This is mandatory: script `05` now **refuses to run** when real and
+`SIM_*.csv` files are mixed in that directory, and script `01` warns when
 `SIM_*.csv` is present. (The scripts never delete files for you.)
 
 ## 8. Run the full pipeline (Windows PowerShell)
@@ -76,14 +81,21 @@ python scripts/05_build_window_dataset.py --config configs/default.yaml
 python scripts/06_train_model.py --config configs/default.yaml
 python scripts/07_evaluate_model.py --config configs/default.yaml
 python scripts/08_plot_results.py --config configs/default.yaml
+python scripts/09_analyze_temporal_features.py --config configs/default.yaml
 ```
+
+(Scripts 05→08 are the LSTM modeling chain; script 09 is the temporal feature
+analysis. Both reuse the 01→04 preprocessing — see the Recommended Workflows in
+`README.md`.)
 
 ## 9. Check the outputs
 
 - `results/tables/` — `lstm_metrics.csv`, `lstm_predictions.csv`,
   `lstm_metrics_by_experiment.csv`, and (if magnetic groups are set in the
-  config) `lstm_metrics_by_magnetic_group.csv`.
-- `results/figures/` — prediction curves and metric charts (`.png` + `.pdf`).
+  config) `lstm_metrics_by_magnetic_group.csv`; plus `temporal_features.csv`
+  from script 09.
+- `results/figures/` — prediction curves, metric charts, and temporal feature
+  figures (`.png` + `.pdf`).
 
 Confirm the result files are **not** tagged `SIMULATED` (which would mean real
 data was not picked up and the simulation fallback ran instead).
