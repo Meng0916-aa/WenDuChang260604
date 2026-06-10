@@ -29,8 +29,24 @@ image). Pseudo-color PNG/JPG/TIFF heatmaps are not valid model input.
 ## 3. Back up the raw `.xtherm`
 
 - Copy the original `.xtherm` files into **`data/raw_xtherm/`** as a backup.
+  Per-dataset subfolders are fine, e.g. `data/raw_xtherm/dataset/`.
 - Never delete, move, or modify anything under `data/raw_xtherm/`. The project
   does not parse `.xtherm` directly.
+
+### 3b. Verify the frame count in `raw_xtherm/<dataset>/`
+
+Run script `01` (see step 8) — it counts `.xtherm` files recursively and prints,
+per subfolder, the count and the first/last frame filenames. Check the count
+against the frame numbering:
+
+```
+frame count = last frame number - first frame number + 1
+```
+
+Example: if the first frame is `001027.xtherm` and the last is
+`001260.xtherm`, the expected count is `1260 - 1027 + 1 = 234`, and script `01`
+should report `dataset: 234 files`. A mismatch means frames are missing from
+the backup — re-copy before continuing.
 
 ## 4. Place exported matrices
 

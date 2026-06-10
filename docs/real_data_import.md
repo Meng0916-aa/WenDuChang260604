@@ -7,8 +7,23 @@ matrices from WeldStudio and feed those in.
 ## 1. Raw `.xtherm` files — backup only
 
 - Put original `.xtherm` files in **`data/raw_xtherm/`**.
+- Files may be organized into **per-dataset subfolders**, e.g.:
+
+  ```
+  data/raw_xtherm/dataset/001027.xtherm
+  data/raw_xtherm/dataset/001028.xtherm
+  ...
+  data/raw_xtherm/dataset/001260.xtherm
+  ```
+
+- Script `01` counts `.xtherm` files **recursively** (`data/raw_xtherm/**/*.xtherm`)
+  and reports, per subfolder, the file count and the first/last frame filenames,
+  e.g. `dataset: 234 files` / `dataset: first=001027.xtherm, last=001260.xtherm`.
+  A subfolder containing no `.xtherm` files is flagged with a NOTE.
 - These are kept as a **backup only**. The project never parses them directly
-  (`src/io/xtherm_reader.py` is interface-only).
+  (`src/io/xtherm_reader.py` is interface-only). For actual processing you must
+  still export the temperature matrices from WeldStudio into
+  `data/exported/npy/` (e.g. `data/exported/npy/dataset.npy`) — see below.
 - **Never** delete, move, or modify anything under `data/raw_xtherm/`.
 
 ## 2. Export temperature matrices from WeldStudio

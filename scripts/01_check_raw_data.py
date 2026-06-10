@@ -6,7 +6,9 @@ flag leftover SIMULATED files before real data is imported. This script is
 read-only: it NEVER deletes, moves, or modifies any file.
 
 Checks:
-  - raw_xtherm file count (.xtherm) — counted, never parsed.
+  - raw_xtherm file count (.xtherm) — counted RECURSIVELY (subfolders such as
+    data/raw_xtherm/dataset/ are included), never parsed. Per-subfolder counts
+    and first/last frame filenames are reported.
   - exported file counts under data/exported/{npy,csv,h5}.
   - processed file counts under data/processed/{matrix,roi,thermal_cycle}.
   - WARNING if data/processed/thermal_cycle contains SIM_*.csv (likely
@@ -37,6 +39,42 @@ def _list(directory, patterns):
     return sorted(out)
 
 
+def _scan_raw_xtherm(directory):
+    """Recursively collect .xtherm files under directory, grouped by subfolder.
+
+    Returns (all_files, groups) where groups maps a subfolder path relative to
+    directory ("." = top level) to its sorted file list. Returns (None, None)
+    if the directory does not exist. Read-only: files are only listed by name,
+    never opened or parsed.
+    """
+    if not os.path.isdir(directory):
+        return None, None
+    found = []
+    for pat in ("*.xtherm", "*.XTHERM"):
+        found.extend(glob.glob(os.path.join(directory, "**", pat),
+                               recursive=True))
+    all_files = sorted(set(found))
+    groups = {}
+    for f in all_files:
+        rel_dir = os.path.relpath(os.path.dirname(f), directory)
+        groups.setdefault(rel_dir, []).append(f)
+    return all_files, groups
+
+
+def _subfolders_without_xtherm(directory, groups):
+    """Immediate subfolders of directory containing no .xtherm anywhere below."""
+    empty = []
+    for entry in sorted(os.listdir(directory)):
+        sub = os.path.join(directory, entry)
+        if not os.path.isdir(sub):
+            continue
+        has_files = any(g == entry or g.startswith(entry + os.sep)
+                        for g in groups)
+        if not has_files:
+            empty.append(entry)
+    return empty
+
+
 def _report(label, directory, patterns):
     files = _list(directory, patterns)
     exists = files is not None
@@ -57,9 +95,28 @@ def main():
     print("[01] Data directory check (read-only; no .xtherm parsing)")
     print("-" * 60)
 
-    # 1. Raw xtherm (counted, never parsed)
-    print("[01] raw_xtherm:")
-    raw = _report("raw_xtherm", paths["raw_xtherm"], ["*.xtherm", "*.XTHERM"])
+    # 1. Raw xtherm (counted recursively, never parsed)
+    print("[01] raw_xtherm (recursive, subfolders included):")
+    raw, raw_groups = _scan_raw_xtherm(paths["raw_xtherm"])
+    if raw is None:
+        print(f"  [MISS ] {'raw_xtherm':24s} files=   -  "
+              f"({paths['raw_xtherm']})")
+        raw = []
+    else:
+        print(f"  [OK   ] {'raw_xtherm':24s} files={len(raw):>4}  "
+              f"({paths['raw_xtherm']})")
+        for sub in sorted(raw_groups):
+            files = raw_groups[sub]
+            names = [os.path.basename(f) for f in files]
+            label = "(top level)" if sub == "." else sub
+            print(f"    {label}: {len(files)} files")
+            print(f"    {label}: first={names[0]}, last={names[-1]}")
+        empty_subs = _subfolders_without_xtherm(paths["raw_xtherm"],
+                                                raw_groups)
+        for sub in empty_subs:
+            print(f"    NOTE: subfolder '{sub}' contains no .xtherm files.")
+        if not raw and not empty_subs:
+            print("    (no .xtherm files and no subfolders found)")
 
     # 2. Exported matrices
     print("[01] exported (temperature matrices):")
@@ -76,7 +133,7 @@ def main():
                          paths["processed_thermal_cycle"], ["*.csv"])
 
     print("-" * 60)
-    print(f"[01] raw_xtherm files          : {len(raw)}")
+    print(f"[01] raw_xtherm files          : {len(raw)} (recursive)")
     print(f"[01] exported matrix files     : {exported_total} "
           f"(npy={len(exp_npy)} csv={len(exp_csv)} h5={len(exp_h5)})")
     print(f"[01] processed matrix/roi/cycle: "
