@@ -41,8 +41,11 @@ $env:KMP_DUPLICATE_LIB_OK="TRUE"
 | Thermal cycle | `.csv`            | N rows    | float32 Celsius curves |
 
 - **N** = number of frames, **H, W** = spatial dimensions.
-- The internal `.xtherm` binary layout is **not** parsed yet (see `src/io/xtherm_reader.py`).
-  The runnable path starts from exported `.npy` / `.csv` / `.h5` matrices or thermal-cycle CSVs.
+- The WeldStudio `.xtherm` export is a **binary temperature matrix** whose layout has been
+  verified empirically: `56-byte header + 640×512 little-endian uint16`, Celsius = raw / 10.
+  Script `02b_convert_xtherm_binary_to_npy.py` converts it to a stacked N × H × W `.npy`
+  (all parameters in `configs/default.yaml` → `xtherm_binary`). `src/io/xtherm_reader.py`
+  remains interface-only; exported `.npy` / `.csv` / `.h5` matrices are still accepted directly.
 
 Full details: `docs/data_format.md`.
 
@@ -86,6 +89,22 @@ code chain works — they are **not** experimental conclusions.
 ## Recommended Workflows
 
 All workflows share the same 01→03 preprocessing.
+
+**A0. Binary `.xtherm` import (real camera data)** —
+`raw_xtherm/dataset/*.xtherm → 02b → exported/npy/dataset.npy → 02 → 03 → 10`
+
+```powershell
+python scripts/01_check_raw_data.py --config configs/default.yaml
+python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
+python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
+python scripts/03_extract_roi.py --config configs/default.yaml
+python scripts/10_extract_thermal_field_features.py --config configs/default.yaml
+```
+
+Script `02b` reads the binary `.xtherm` frames (read-only), stacks them into
+`data/exported/npy/dataset.npy` (N × H × W float32 **Celsius**) plus
+`dataset_meta.json`, then the normal `02 → 03 → 10` chain continues. Because
+`02b` output is already Celsius, `data.exported_is_celsius` must stay `true`.
 
 **A. ML quality assessment (MAIN LINE, small samples)** — `01 → 02 → 03 → 10 → 11 → 12`
 
@@ -143,6 +162,7 @@ workflow A.
 | Script | Input | Output |
 |--------|-------|--------|
 | `01_check_raw_data.py` | data directories | console report (no `.xtherm` parsing) |
+| `02b_convert_xtherm_binary_to_npy.py` | `data/raw_xtherm/dataset/*.xtherm` (binary) | `data/exported/npy/dataset.npy` + `dataset_meta.json` (float32 °C) |
 | `02_convert_exported_to_npy.py` | `data/exported/{npy,csv,h5}` | `data/processed/matrix/*.npy` (float32 °C) |
 | `03_extract_roi.py` | `data/processed/matrix` | `data/processed/roi/*.npy` |
 | `04_extract_thermal_cycle.py` | `data/processed/roi` | `data/processed/thermal_cycle/*.csv` |

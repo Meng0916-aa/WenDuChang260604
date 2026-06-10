@@ -31,7 +31,9 @@ data:
   valid_range: [0.0, 3000.0]  # valid Celsius range
   # If exported matrices are already in Celsius, set true so 02 does NOT
   # divide by 10 again. If they are still raw digital counts, set false.
-  exported_is_celsius: false
+  # NOTE: script 02b (xtherm_binary) already applies scale_factor=0.1, so its
+  # output dataset.npy IS Celsius -> keep true when feeding 02b output into 02.
+  exported_is_celsius: true
   # Real-data shape contract enforced by 02_convert_exported_to_npy.py.
   # Inputs that violate this raise an explicit error (no silent reshape).
   expected_ndim: 3            # require N x H x W (a single H x W frame is auto-expanded)
@@ -44,6 +46,26 @@ data:
   # Metadata lives in a Markdown template (docs/metadata_template.md) so it is
   # NOT swept up by the *.csv gitignore rule. This path is optional.
   metadata_file: "experiments.md"   # under paths.metadata (optional)
+
+# --- Binary .xtherm -> npy conversion (script 02b) ---
+# Format verified empirically on real WeldStudio exports (2026-06):
+#   file size = header_bytes + width*height*2  (655416 = 56 + 640*512*2)
+#   little-endian uint16; T_celsius = raw / 10. Big-endian reads give ~6500 C
+#   on the first frame -> wrong, do NOT use big-endian.
+xtherm_binary:
+  input_dir: "data/raw_xtherm/dataset"
+  output_npy: "data/exported/npy/dataset.npy"
+  output_meta: "data/exported/npy/dataset_meta.json"
+  sample_id: "dataset"
+  width: 640
+  height: 512
+  header_bytes: 56
+  dtype: "uint16"
+  endian: "little"
+  scale_factor: 0.1
+  # zero pixels (0.0 C) above this fraction trigger a NOTE (not an error);
+  # edge zeros are usually invalid pixels or background.
+  zero_ratio_note_threshold: 0.05
 
 # --- ROI ---
 roi:

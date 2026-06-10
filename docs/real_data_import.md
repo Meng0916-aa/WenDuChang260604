@@ -26,9 +26,44 @@ matrices from WeldStudio and feed those in.
   `data/exported/npy/` (e.g. `data/exported/npy/dataset.npy`) — see below.
 - **Never** delete, move, or modify anything under `data/raw_xtherm/`.
 
+## 1b. Binary `.xtherm` → npy with script 02b (verified format)
+
+WeldStudio's `.xtherm` export is a **binary temperature matrix**, not a text
+CSV. The layout used by this project has been verified on real data:
+
+| Property      | Value |
+|---------------|-------|
+| Header        | **56 bytes** (skipped) |
+| Payload       | **640 × 512** pixels, **little-endian uint16** (`<u2`) |
+| File size     | `56 + 640 × 512 × 2 = 655416` bytes per frame |
+| Reshape       | `512 × 640` (H × W) |
+| Celsius       | `raw_value × 0.1` (`scale_factor = 0.1`) |
+
+> Big-endian reads give ~6500 °C on the first frame — clearly wrong. Always
+> little-endian.
+
+Convert all frames in one go:
+
+```powershell
+python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
+```
+
+This reads `xtherm_binary.input_dir` recursively (e.g.
+`data/raw_xtherm/dataset/`), sorts frames by filename, stacks them into
+`data/exported/npy/dataset.npy` (**N × H × W float32 Celsius**) and writes
+`dataset_meta.json` alongside. All parameters (width/height/header/dtype/
+endian/scale) live in `configs/default.yaml` under `xtherm_binary`. The raw
+`.xtherm` files are only read — never deleted, moved, or modified.
+
+**Important:** because `02b` already applies `× 0.1`, its output is Celsius —
+keep `data.exported_is_celsius: true` so script `02` does not divide by 10
+again. `dataset.npy` / `dataset_meta.json` are local-only and are never
+committed to GitHub.
+
 ## 2. Export temperature matrices from WeldStudio
 
-From WeldStudio, export each run as a **temperature matrix** and place it in one of:
+Alternatively, export each run from WeldStudio directly as a **temperature
+matrix** and place it in one of:
 
 - `data/exported/npy/`  ← **recommended**
 - `data/exported/csv/`
