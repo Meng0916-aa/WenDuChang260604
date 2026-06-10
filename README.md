@@ -3,12 +3,18 @@
 ## Project Purpose
 
 Process temperature field data from a **Xiris VXIR-3000** camera (WeldStudio Pro `.xtherm`
-format), convert raw digital counts to degrees Celsius, and build deep-learning models for
-multi-step **thermal cycle prediction** under **with / without magnetic field** conditions.
+format), convert raw digital counts to degrees Celsius, extract temperature-field features,
+and assess **cladding quality** under **with / without magnetic field** conditions.
 
-> **Currently runnable model: LSTM baseline only.**
-> TCN / Transformer / LSTM-TCN exist as guarded skeletons (`NotImplementedError`) and are
-> not yet implemented. See `docs/model_design.md`.
+> **Current main line (small samples): temperature-field features + traditional ML.**
+> Because the real dataset is small, the primary path extracts per-experiment thermal-field
+> features and trains traditional machine-learning models (Random Forest / SVM / KNN /
+> Logistic Regression) against substrate cross-section quality labels. See
+> `docs/ml_quality_assessment.md`.
+>
+> **LSTM baseline is optional**, kept for when enough data is available for deep sequence
+> modeling. TCN / Transformer / LSTM-TCN remain guarded skeletons (`NotImplementedError`)
+> and are not implemented. See `docs/model_design.md`.
 
 ## Environment
 
@@ -79,9 +85,25 @@ code chain works — they are **not** experimental conclusions.
 
 ## Recommended Workflows
 
-Two independent analyses share the same 01→04 preprocessing:
+All workflows share the same 01→03 preprocessing.
 
-**A. Temporal feature analysis** — `01 → 02 → 03 → 04 → 09`
+**A. ML quality assessment (MAIN LINE, small samples)** — `01 → 02 → 03 → 10 → 11 → 12`
+
+```powershell
+python scripts/01_check_raw_data.py --config configs/default.yaml
+python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
+python scripts/03_extract_roi.py --config configs/default.yaml
+python scripts/10_extract_thermal_field_features.py --config configs/default.yaml
+python scripts/11_build_ml_quality_dataset.py --config configs/default.yaml
+python scripts/12_train_ml_quality_model.py --config configs/default.yaml
+```
+
+Extracts one thermal-field feature row per experiment, merges with substrate
+cross-section **quality labels** (`data/metadata/quality_labels.csv`, local), and trains
+traditional ML models. Quality labels come from substrate cross-section measurements — see
+`docs/quality_label_template.md` and `docs/ml_quality_assessment.md`.
+
+**B. Temporal feature analysis** — `01 → 02 → 03 → 04 → 09`
 
 ```powershell
 python scripts/01_check_raw_data.py --config configs/default.yaml
@@ -91,11 +113,11 @@ python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
 python scripts/09_analyze_temporal_features.py --config configs/default.yaml
 ```
 
-Produces `results/tables/temporal_features.csv` and temporal feature figures
-(`temporal_feature_overview.*`, `temporal_curve_<id>.*`) under `results/figures/`.
-See `docs/temporal_analysis.md`.
+Produces `results/tables/temporal_features.csv` and temporal feature figures. See
+`docs/temporal_analysis.md`.
 
-**B. LSTM prediction modeling** — `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
+**C. LSTM deep-learning prediction (OPTIONAL, for larger datasets)** —
+`01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
 
 ```powershell
 python scripts/01_check_raw_data.py --config configs/default.yaml
@@ -108,10 +130,13 @@ python scripts/07_evaluate_model.py --config configs/default.yaml
 python scripts/08_plot_results.py --config configs/default.yaml
 ```
 
-> **SIMULATED data caveat:** if inputs are `SIM_*.csv` (the script-05 fallback), every
-> output table and figure is tagged `SIMULATED`. Such results only validate the code chain
-> and must **never** be cited as experimental conclusions. Archive `SIM_*.csv` before
-> importing real data (see `docs/after_experiment_checklist.md`).
+The LSTM baseline is best suited to **larger** datasets; with few experiments prefer
+workflow A.
+
+> **SIMULATED data caveat:** if inputs are `SIM_*` (the script-05 fallback), every output
+> table and figure is tagged `SIMULATED`. Such results only validate the code chain and must
+> **never** be cited as experimental conclusions. Archive `SIM_*` before importing real data
+> (see `docs/after_experiment_checklist.md`).
 
 ## Pipeline Scripts
 
@@ -126,6 +151,9 @@ python scripts/08_plot_results.py --config configs/default.yaml
 | `07_evaluate_model.py` | samples + checkpoint | `lstm_metrics.csv`, `lstm_predictions.csv`, (group metrics) |
 | `08_plot_results.py` | tables | figures (`.png` + `.pdf`) |
 | `09_analyze_temporal_features.py` | `data/processed/thermal_cycle` | `temporal_features.csv` + temporal feature figures |
+| `10_extract_thermal_field_features.py` | `data/processed/roi` | `thermal_field_features.csv` (one row/experiment) |
+| `11_build_ml_quality_dataset.py` | features + `quality_labels.csv` (local) | `ml_quality_dataset.csv` |
+| `12_train_ml_quality_model.py` | `ml_quality_dataset.csv` | `ml_quality_metrics.csv`, `ml_quality_predictions.csv`, `ml_feature_importance.csv` + figures |
 
 ## Output Files
 

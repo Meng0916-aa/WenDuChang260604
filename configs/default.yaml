@@ -186,3 +186,54 @@ temporal_analysis:
   input_dir: "data/processed/thermal_cycle"
   output_table: "results/tables/temporal_features.csv"
   output_figure_dir: "results/figures"
+
+# ============================================================
+# Machine-Learning Quality Assessment (main line for small samples)
+# Scripts 10 -> 11 -> 12. Extract per-experiment thermal-field features,
+# merge with cross-section quality labels, train traditional ML models.
+# ============================================================
+
+# --- Thermal-field feature extraction (script 10) ---
+# One ROI temperature matrix (N x H x W) per experiment -> ONE feature row.
+# Per-experiment aggregation (NOT per-frame) avoids data leakage on small,
+# highly-correlated frame sequences.
+thermal_field_features:
+  high_temp_threshold: 800.0    # Celsius; melt-pool / high-temperature zone
+  haz_threshold: 500.0          # Celsius; heat-affected-zone boundary
+  pixel_size_mm: null           # mm per pixel; null -> areas/widths in pixels
+  frame_rate_fps: 1000          # for cooling-rate / dwell-time (seconds)
+  center_threshold: 800.0       # threshold for the temperature-weighted center
+  smooth_window: 5              # moving-average window for rate features
+  input_dir: "data/processed/roi"
+  output_table: "results/tables/thermal_field_features.csv"
+
+# --- Quality labels (from substrate cross-section measurements) ---
+# Label files are local-only (data/metadata, git-ignored). See
+# docs/quality_label_template.md.
+quality_labels:
+  label_file_csv: "data/metadata/quality_labels.csv"
+  label_file_excel: "data/metadata/quality_labels.xlsx"
+  quality_rule:
+    dilution_rate_min: 0.30
+    dilution_rate_max: 0.50
+    aspect_ratio_min: 3.0
+    aspect_ratio_max: 6.0
+    wetting_angle_min: 30.0
+    wetting_angle_max: 55.0
+
+# --- ML quality model (script 12) ---
+ml_quality:
+  task: "classification"        # classification | regression
+  target: "quality_label"       # classification target, or a regression column
+  cv: "leave_one_out"           # leave_one_out | stratified_kfold
+  n_splits: 5                   # used only when cv == stratified_kfold
+  random_state: 42
+  models:
+    - rf
+    - svm
+    - knn
+    - logistic_regression
+  dataset_table: "results/tables/ml_quality_dataset.csv"
+  output_metrics: "results/tables/ml_quality_metrics.csv"
+  output_predictions: "results/tables/ml_quality_predictions.csv"
+  output_feature_importance: "results/tables/ml_feature_importance.csv"
