@@ -48,9 +48,30 @@ the ones that are missing/blank and keeps your values otherwise.
 > bounds below are `30..50`. This differs from the experiment-level main line
 > (`docs/quality_label_template.md`), where dilution is a fraction `0.30..0.50`.
 
+## Required measurements (build stops if any are missing)
+
+These six columns must be present and **numeric** for every section that has
+features — empty / NaN / non-numeric values are **never** auto-labelled "Bad":
+
+```
+H_mm   W_mm   D_mm   theta_left_deg   theta_right_deg   defect_presence
+```
+
+If any are missing, script 14 stops without writing
+`section_ml_dataset.csv` and reports each offending row, e.g.:
+
+```
+Missing required section label values:
+sample_id=P300_V400_F40_B60_T1_S1 missing H_mm,W_mm,D_mm,theta_left_deg,theta_right_deg,defect_presence
+[14] Fill data/metadata/section_quality_labels.csv with measured cross-section values before running 14.
+```
+
+So a freshly-copied template (with blank measurements) will **not** produce a
+polluted all-"Bad" dataset — fill in the measured values first.
+
 ## Auto Good/Bad rule
 
-`quality_label = Good` **iff all** of:
+Once the required measurements are present, `quality_label = Good` **iff all** of:
 
 ```
 30 <= dilution_rate     <= 50      (percent)
@@ -60,8 +81,10 @@ defect_presence == 0
 ```
 
 otherwise `quality_label = Bad`. The numeric bounds are configurable in
-`configs/default.yaml` → `section_quality_labels.quality_rule.*`. A missing
-`defect_presence` is treated as `0`.
+`configs/default.yaml` → `section_quality_labels.quality_rule.*`. If
+`quality_label` is filled in manually it is preserved; the continuous derived
+labels (`dilution_rate`, `aspect_ratio`, `wetting_angle_avg`,
+`wetting_angle_diff`) are still computed either way.
 
 ## Template (CSV header + example rows — fill with REAL measurements)
 

@@ -85,6 +85,18 @@ def test_ensure_quality_label_fills_only_missing():
     assert out.loc[1, "quality_label"] == "Good"  # auto-filled
 
 
+def test_invalid_inputs_not_autolabelled_bad():
+    # No quality_label, and the rule inputs are NaN -> must NOT become "Bad".
+    df = pd.DataFrame({
+        "dilution_rate": [np.nan],
+        "aspect_ratio": [np.nan],
+        "wetting_angle_avg": [np.nan],
+        "defect_presence": [np.nan],
+    })
+    out = _m.ensure_quality_label(df, _RULE)
+    assert pd.isna(out.loc[0, "quality_label"])
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

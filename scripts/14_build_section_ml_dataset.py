@@ -57,6 +57,16 @@ _DEFAULT_RULE = {
     "wetting_angle_min": 30.0, "wetting_angle_max": 55.0,
 }
 
+# Cross-section measurements that MUST be present and numeric to build a real
+# label. Empty / NaN / non-numeric values are NEVER auto-labelled "Bad" — the
+# build stops and reports the offending sample_ids (no label pollution).
+_REQUIRED_LABEL_COLS = ["H_mm", "W_mm", "D_mm", "theta_left_deg",
+                        "theta_right_deg", "defect_presence"]
+
+
+class SectionLabelError(ValueError):
+    """Required cross-section measurement values are missing or non-numeric."""
+
 
 def _missing(series_or_none, index):
     """Boolean mask: True where the column is absent or NaN/blank."""
@@ -64,6 +74,43 @@ def _missing(series_or_none, index):
         return pd.Series([True] * len(index), index=index)
     s = series_or_none
     return s.isna() | (s.astype(str).str.strip() == "")
+
+
+def _is_invalid_value(val) -> bool:
+    """True if a measurement cell is empty / NaN / not convertible to a number."""
+    if val is None:
+        return True
+    if isinstance(val, float) and np.isnan(val):
+        return True
+    if isinstance(val, str) and val.strip() == "":
+        return True
+    try:
+        float(val)
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def find_missing_label_values(labels: pd.DataFrame, required=None) -> dict:
+    """Locate missing/invalid required measurements.
+
+    Returns an ordered dict {sample_id: [missing_field, ...]} for every row that
+    lacks a usable value in one or more required columns. Fields are listed in
+    _REQUIRED_LABEL_COLS order. An empty dict means all required values are
+    present and numeric.
+    """
+    required = required or _REQUIRED_LABEL_COLS
+    problems = {}
+    for _, row in labels.iterrows():
+        sid = str(row.get("sample_id", "<no sample_id>"))
+        miss = []
+        for col in required:
+            if col not in labels.columns or _is_invalid_value(row.get(col)):
+                miss.append(col)
+        if miss:
+            problems[sid] = miss
+    return problems
+
 
 
 def compute_derived_labels(df: pd.DataFrame) -> pd.DataFrame:
@@ -102,14 +149,21 @@ def compute_derived_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def apply_quality_rule(df: pd.DataFrame, rule: dict) -> pd.Series:
-    """Compute Good/Bad per the percent-based section rule (+ defect gate)."""
-    dr = pd.to_numeric(df.get("dilution_rate"), errors="coerce")
-    ar = pd.to_numeric(df.get("aspect_ratio"), errors="coerce")
-    wa = pd.to_numeric(df.get("wetting_angle_avg"), errors="coerce")
-    if "defect_presence" in df.columns:
-        defect = pd.to_numeric(df["defect_presence"], errors="coerce").fillna(0)
-    else:
-        defect = pd.Series([0] * len(df), index=df.index)
+    """Compute Good/Bad per the percent-based section rule (+ defect gate).
+
+    NOTE: this is the pure rule given numeric inputs. It does NOT decide whether
+    a row is allowed to be auto-labelled — that gate lives in
+    ensure_quality_label, which refuses to label rows with invalid inputs.
+    """
+    def num(col, default=np.nan):
+        if col in df.columns:
+            return pd.to_numeric(df[col], errors="coerce")
+        return pd.Series([default] * len(df), index=df.index)
+
+    dr = num("dilution_rate")
+    ar = num("aspect_ratio")
+    wa = num("wetting_angle_avg")
+    defect = num("defect_presence", default=0).fillna(0)
 
     good = (
         dr.between(rule["dilution_rate_min"], rule["dilution_rate_max"]) &
@@ -121,15 +175,29 @@ def apply_quality_rule(df: pd.DataFrame, rule: dict) -> pd.Series:
 
 
 def ensure_quality_label(df: pd.DataFrame, rule: dict) -> pd.DataFrame:
-    """Fill quality_label for rows where it is missing, using apply_quality_rule."""
+    """Fill quality_label only for rows that are BOTH missing a label AND have
+    valid rule inputs (dilution_rate, aspect_ratio, wetting_angle_avg,
+    defect_presence). User-supplied labels are always preserved. Rows with
+    invalid inputs are never auto-labelled — they are left blank, never "Bad".
+    """
     out = df.copy()
     auto = apply_quality_rule(out, rule)
+
+    def num(col):
+        if col in out.columns:
+            return pd.to_numeric(out[col], errors="coerce")
+        return pd.Series([np.nan] * len(out), index=out.index)
+
+    valid = (num("dilution_rate").notna() & num("aspect_ratio").notna() &
+             num("wetting_angle_avg").notna() & num("defect_presence").notna())
+
     need = _missing(out["quality_label"] if "quality_label" in out.columns
                     else None, out.index)
-    if "quality_label" in out.columns:
-        out["quality_label"] = out["quality_label"].where(~need, auto)
-    else:
-        out["quality_label"] = auto
+    fill = need & valid
+    if "quality_label" not in out.columns:
+        out["quality_label"] = pd.Series([np.nan] * len(out), index=out.index)
+    # Keep existing label where NOT fill; use the auto label where fill is True.
+    out["quality_label"] = out["quality_label"].where(~fill, auto)
     return out
 
 
@@ -137,7 +205,13 @@ def build_section_dataset(features: pd.DataFrame, labels: pd.DataFrame,
                           rule: dict):
     """Merge features + labels on sample_id, returning (merged, missing_feats).
 
-    Raises SystemExit-style ValueError if a feature sample_id has no label.
+    Order of checks:
+      1. both tables must have a 'sample_id' column;
+      2. every feature sample_id must have a label row (else ValueError);
+      3. the labels that WILL be merged must carry valid required measurements
+         (else SectionLabelError — no auto "Bad" pollution);
+      4. derive ratios + auto quality_label, then inner-merge on sample_id.
+
     missing_feats lists label sample_ids that have no features (a warning, not
     fatal).
     """
@@ -146,9 +220,6 @@ def build_section_dataset(features: pd.DataFrame, labels: pd.DataFrame,
     if "sample_id" not in labels.columns:
         raise ValueError("label file has no 'sample_id' column "
                          "(see docs/section_quality_label_template.md).")
-
-    labels = compute_derived_labels(labels)
-    labels = ensure_quality_label(labels, rule)
 
     feat_ids = set(features["sample_id"].astype(str))
     label_ids = set(labels["sample_id"].astype(str))
@@ -160,6 +231,21 @@ def build_section_dataset(features: pd.DataFrame, labels: pd.DataFrame,
             f"{len(missing_labels)} section sample(s) have features but NO "
             f"label: {missing_labels}. Add their rows to the label file "
             f"(refusing to silently drop samples).")
+
+    # Validate required measurements on the labels that will actually be merged
+    # (extra, unused template rows are not validated). Empty/NaN/non-numeric
+    # values stop the build instead of being auto-labelled "Bad".
+    used = labels[labels["sample_id"].astype(str).isin(feat_ids)]
+    problems = find_missing_label_values(used)
+    if problems:
+        lines = ["Missing required section label values:"]
+        for sid in sorted(problems):
+            lines.append(f"sample_id={sid} missing {','.join(problems[sid])}")
+        raise SectionLabelError("\n".join(lines))
+
+    # Measurements complete -> derive continuous labels and (auto) quality_label.
+    labels = compute_derived_labels(labels)
+    labels = ensure_quality_label(labels, rule)
 
     # Drop id columns from labels that already exist in features (keep feature copy).
     drop = [c for c in _OVERLAP_ID_COLS if c in labels.columns
@@ -223,6 +309,11 @@ def main():
 
     try:
         merged, missing_feats = build_section_dataset(features, labels, rule)
+    except SectionLabelError as e:
+        print(f"[14] {e}")
+        print("[14] Fill data/metadata/section_quality_labels.csv with measured "
+              "cross-section values before running 14.")
+        sys.exit(1)
     except ValueError as e:
         raise SystemExit(f"[14] {e}")
 

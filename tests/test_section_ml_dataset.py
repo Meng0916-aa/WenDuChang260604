@@ -8,6 +8,7 @@ import os
 import sys
 import importlib.util
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -85,6 +86,79 @@ def test_missing_sample_id_column_raises():
     labels = _labels(["R01_T1_S1"])
     with pytest.raises(ValueError, match="sample_id"):
         _m.build_section_dataset(feats, labels, _RULE)
+
+
+# --- Required-measurement validation (no auto "Bad" pollution) --------------
+
+def _empty_labels(sample_ids):
+    """Label rows that exist but carry NO measured values (template state)."""
+    n = len(sample_ids)
+    return pd.DataFrame({
+        "sample_id": sample_ids,
+        "H_mm": [np.nan] * n, "W_mm": [np.nan] * n, "D_mm": [np.nan] * n,
+        "theta_left_deg": [np.nan] * n, "theta_right_deg": [np.nan] * n,
+        "defect_presence": [np.nan] * n,
+    })
+
+
+def test_empty_measurements_raise_not_labelled_bad():
+    feats = _features()
+    labels = _empty_labels(list(feats["sample_id"]))
+    with pytest.raises(_m.SectionLabelError) as exc:
+        _m.build_section_dataset(feats, labels, _RULE)
+    msg = str(exc.value)
+    assert "Missing required section label values" in msg
+    # offending sample_id + every missing required field listed
+    assert "sample_id=R01_T1_S1" in msg
+    for col in ("H_mm", "W_mm", "D_mm", "theta_left_deg", "theta_right_deg",
+                "defect_presence"):
+        assert col in msg
+    # SectionLabelError is a ValueError subclass (so callers catching ValueError still work)
+    assert isinstance(exc.value, ValueError)
+
+
+def test_blank_string_measurements_also_rejected():
+    feats = _features()
+    labels = _labels(list(feats["sample_id"]))
+    # Emulate a CSV that loaded these columns as text (blank / non-numeric).
+    labels["D_mm"] = labels["D_mm"].astype(object)
+    labels["theta_left_deg"] = labels["theta_left_deg"].astype(object)
+    labels.loc[0, "D_mm"] = ""          # blank string, not numeric
+    labels.loc[1, "theta_left_deg"] = "n/a"   # non-numeric text
+    with pytest.raises(_m.SectionLabelError) as exc:
+        _m.build_section_dataset(feats, labels, _RULE)
+    msg = str(exc.value)
+    assert "sample_id=R01_T1_S1 missing D_mm" in msg
+    assert "sample_id=R01_T1_S2 missing theta_left_deg" in msg
+    # the fully-measured row is NOT reported
+    assert "R02_T1_S1" not in msg
+
+
+def test_complete_measurements_autolabel_good_bad():
+    feats = _features()
+    labels = _labels(list(feats["sample_id"]))   # complete, no quality_label
+    merged, _ = _m.build_section_dataset(feats, labels, _RULE)
+    assert "quality_label" in merged.columns
+    # auto labels only ever Good or Bad, never blank/NaN here
+    assert merged["quality_label"].isin(["Good", "Bad"]).all()
+    # continuous derived targets are populated (the n=0 bug must not recur)
+    for tgt in ("dilution_rate", "aspect_ratio", "wetting_angle_avg",
+                "wetting_angle_diff"):
+        assert merged[tgt].notna().all()
+
+
+def test_manual_quality_label_preserved():
+    feats = _features()
+    labels = _labels(list(feats["sample_id"]))
+    # _labels would auto-label all Good; manual values must win.
+    labels["quality_label"] = ["Bad", "Good", "Bad"]
+    merged, _ = _m.build_section_dataset(feats, labels, _RULE)
+    got = dict(zip(merged["sample_id"].astype(str), merged["quality_label"]))
+    assert got["R01_T1_S1"] == "Bad"
+    assert got["R01_T1_S2"] == "Good"
+    assert got["R02_T1_S1"] == "Bad"
+    # derived continuous labels still computed alongside the manual label
+    assert merged["dilution_rate"].notna().all()
 
 
 if __name__ == "__main__":
