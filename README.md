@@ -152,6 +152,40 @@ python scripts/08_plot_results.py --config configs/default.yaml
 The LSTM baseline is best suited to **larger** datasets; with few experiments prefer
 workflow A.
 
+**D. Section-level ML quality prediction** — `01 → 02b → 02 → 03 → 13 → 14 → 15 → 16`
+
+```powershell
+python scripts/01_check_raw_data.py --config configs/default.yaml
+python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
+python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
+python scripts/03_extract_roi.py --config configs/default.yaml
+python scripts/13_extract_local_section_features.py --config configs/default.yaml
+python scripts/14_build_section_ml_dataset.py --config configs/default.yaml
+python scripts/15_train_section_quality_model.py --config configs/default.yaml
+python scripts/16_plot_section_ml_results.py --config configs/default.yaml
+```
+
+The ML **sample unit is a cross-section position** (e.g. `R01_T1_S1`), **not** a
+temperature-field frame. Each sample = process parameters + **local**
+thermal-field features around that section's frame window.
+
+- `13` maps each section position to a local frame window and extracts `local_*`
+  features (reusing the `thermal_field_features` math).
+- `14` merges local features with cross-section quality labels and derives
+  `dilution_rate` / `aspect_ratio` / `wetting_angle_avg` / `wetting_angle_diff`
+  and a Good/Bad label.
+- `15` trains regression + classification models with **GroupKFold /
+  LeaveOneGroupOut on `experiment_id`** — sections of the same experiment are
+  **never** split across train and test (no random shuffling, no leakage).
+- `16` plots prediction scatter, confusion matrices, feature importance, and an
+  input-set comparison.
+
+Three input sets — **process_only**, **thermal_only**, **fused** — are compared
+to test whether local thermal-field features improve section-quality prediction.
+`section_plan.csv` and `section_quality_labels.csv` are **local** files (see
+`docs/section_level_ml_dataset.md` and `docs/section_quality_label_template.md`);
+the scripts give clear guidance instead of fabricating data when they are absent.
+
 > **SIMULATED data caveat:** if inputs are `SIM_*` (the script-05 fallback), every output
 > table and figure is tagged `SIMULATED`. Such results only validate the code chain and must
 > **never** be cited as experimental conclusions. Archive `SIM_*` before importing real data
@@ -174,6 +208,10 @@ workflow A.
 | `10_extract_thermal_field_features.py` | `data/processed/roi` | `thermal_field_features.csv` (one row/experiment) |
 | `11_build_ml_quality_dataset.py` | features + `quality_labels.csv` (local) | `ml_quality_dataset.csv` |
 | `12_train_ml_quality_model.py` | `ml_quality_dataset.csv` | `ml_quality_metrics.csv`, `ml_quality_predictions.csv`, `ml_feature_importance.csv` + figures |
+| `13_extract_local_section_features.py` | `section_plan.csv` (local) + `data/processed/roi` | `local_section_features.csv` (one row/section) |
+| `14_build_section_ml_dataset.py` | local features + `section_quality_labels.csv` (local) | `section_ml_dataset.csv` |
+| `15_train_section_quality_model.py` | `section_ml_dataset.csv` | `section_ml_{regression,classification}_{metrics,predictions}.csv`, `section_ml_feature_importance.csv` |
+| `16_plot_section_ml_results.py` | section ML tables | `results/figures/section_ml/*.png/.pdf` |
 
 ## Output Files
 

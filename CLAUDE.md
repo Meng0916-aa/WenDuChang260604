@@ -52,9 +52,14 @@ Then run Python scripts in the active pytorch environment.
   (PyTorch 2.11.0+cu128, CUDA available).
 - Do NOT execute `pip install torch` (or install torch in the `base` env).
 - Do NOT delete, move, or modify anything under `data/raw_xtherm/`.
-- Do NOT hand-write an unverifiable `.xtherm` binary parser. `src/io/xtherm_reader.py`
-  stays interface-only (raises `NotImplementedError`) until real parsing is implemented
-  via the Xiris WeldSDK / official export.
+- Do NOT hand-write an UNVERIFIED `.xtherm` parser. The project currently supports only
+  the empirically-verified Xiris WeldStudio Temperature `.xtherm` format:
+  **56-byte header + 640×512 little-endian uint16 + scale_factor 0.1** (Celsius = raw/10),
+  implemented in `scripts/02b_convert_xtherm_binary_to_npy.py` (all parameters in
+  `configs/default.yaml` → `xtherm_binary`). Any other source, frame size, or export mode
+  must first be re-verified (file size, endianness, dimensions, and temperature range) before
+  it may be parsed. `src/io/xtherm_reader.py` stays interface-only
+  (raises `NotImplementedError`).
 
 ## Current Runnable Scope
 - Only the **LSTM baseline** (`src/models/lstm.py`) is trainable.

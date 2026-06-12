@@ -72,10 +72,10 @@ roi:
   enabled: true
   # Preferred: top/left/height/width (pixels). top=row, left=column.
   # If height or width is null, the legacy `bounds` field is used instead.
-  top: 80
-  left: 100
-  height: 270        # rows kept: top .. top+height-1
-  width: 300         # cols kept: left .. left+width-1
+  top: 200
+  left: 0
+  height: 300        # rows kept: top .. top+height-1
+  width: 600         # cols kept: left .. left+width-1
   # Legacy fallback: pixel coordinates [x1, y1, x2, y2] (x=col, y=row).
   bounds: [100, 80, 400, 350]
   save_intermediate: true
@@ -221,9 +221,9 @@ temporal_analysis:
 # highly-correlated frame sequences.
 thermal_field_features:
   high_temp_threshold: 800.0    # Celsius; melt-pool / high-temperature zone
-  haz_threshold: 500.0          # Celsius; heat-affected-zone boundary
-  pixel_size_mm: null           # mm per pixel; null -> areas/widths in pixels
-  frame_rate_fps: 1000          # for cooling-rate / dwell-time (seconds)
+  haz_threshold: 700.0          # Celsius; heat-affected-zone boundary
+  pixel_size_mm: 0.03128           # mm per pixel; null -> areas/widths in pixels
+  frame_rate_fps: 52          # for cooling-rate / dwell-time (seconds)
   center_threshold: 800.0       # threshold for the temperature-weighted center
   smooth_window: 5              # moving-average window for rate features
   input_dir: "data/processed/roi"
@@ -259,3 +259,113 @@ ml_quality:
   output_metrics: "results/tables/ml_quality_metrics.csv"
   output_predictions: "results/tables/ml_quality_predictions.csv"
   output_feature_importance: "results/tables/ml_feature_importance.csv"
+
+# ============================================================
+# Section-level ML quality prediction (scripts 13 -> 14 -> 15 -> 16)
+# Workflow:  01 -> 02b -> 02 -> 03 -> 13 -> 14 -> 15 -> 16
+#
+# The ML SAMPLE UNIT is a CROSS-SECTION position (e.g. R01_T1_S1), NOT a frame.
+# Features = process parameters + LOCAL thermal-field descriptors around the
+# section's frame window. To avoid data leakage on highly-correlated frames,
+# every cross-section that belongs to the same experiment_id is one GROUP, and
+# train/test splits use GroupKFold / LeaveOneGroupOut on experiment_id — never
+# a random shuffle of sections.
+# ============================================================
+
+# --- Section sampling plan + local feature extraction (script 13) ---
+section_samples:
+  section_plan_csv: "data/metadata/section_plan.csv"   # LOCAL, git-ignored
+  local_feature_output: "results/tables/local_section_features.csv"
+  default_travel_distance_mm: 30.0     # used when a plan row omits travel_distance_mm
+  default_window_half_frames: 10       # used when a plan row omits window_half_frames
+  default_window_half_mm: null         # optional mm-based half window
+  use_window_half_mm: false            # true -> derive half_frames from *_mm + travel
+
+# --- Section quality labels + dataset build (script 14) ---
+# NOTE: here dilution_rate is a PERCENT (D/(D+H)*100), so the rule bounds are
+# 30..50 (percent), unlike the experiment-level fraction rule (0.30..0.50).
+section_quality_labels:
+  label_file_csv: "data/metadata/section_quality_labels.csv"     # LOCAL, git-ignored
+  label_file_excel: "data/metadata/section_quality_labels.xlsx"  # LOCAL, git-ignored
+  output_dataset: "results/tables/section_ml_dataset.csv"
+  quality_rule:
+    dilution_rate_min: 30.0
+    dilution_rate_max: 50.0
+    aspect_ratio_min: 3.0
+    aspect_ratio_max: 6.0
+    wetting_angle_min: 30.0
+    wetting_angle_max: 55.0
+
+# --- Section ML training + evaluation (script 15) ---
+section_ml:
+  dataset_csv: "results/tables/section_ml_dataset.csv"
+  group_column: "experiment_id"      # leakage guard: split groups are experiments
+  sample_id_column: "sample_id"
+  random_state: 42
+  cv: "group_kfold"                  # group_kfold | leave_one_group_out
+  n_splits: 5
+  # Three input-feature sets compared head-to-head.
+  input_sets:
+    process_only:
+      - laser_power_W
+      - scan_speed_mm_min
+      - powder_feed_g_min
+      - magnetic_field_mT
+    thermal_only:
+      - local_peak_temperature
+      - local_mean_temperature
+      - local_temperature_fluctuation
+      - local_high_temp_area_mean
+      - local_high_temp_area_max
+      - local_haz_width_mean
+      - local_haz_width_max
+      - local_gradient_mean
+      - local_gradient_max
+      - local_cooling_rate_mean
+      - local_cooling_rate_max_abs
+      - local_center_offset_mean
+      - local_center_offset_max
+      - local_dwell_time
+      - local_temperature_auc
+    fused:
+      - laser_power_W
+      - scan_speed_mm_min
+      - powder_feed_g_min
+      - magnetic_field_mT
+      - local_peak_temperature
+      - local_mean_temperature
+      - local_temperature_fluctuation
+      - local_high_temp_area_mean
+      - local_high_temp_area_max
+      - local_haz_width_mean
+      - local_haz_width_max
+      - local_gradient_mean
+      - local_gradient_max
+      - local_cooling_rate_mean
+      - local_cooling_rate_max_abs
+      - local_center_offset_mean
+      - local_center_offset_max
+      - local_dwell_time
+      - local_temperature_auc
+  regression_targets:
+    - dilution_rate
+    - aspect_ratio
+    - wetting_angle_avg
+    - wetting_angle_diff
+  classification_target: "quality_label"
+  regression_models:
+    - ridge
+    - svr
+    - random_forest
+    - knn
+  classification_models:
+    - logistic_regression
+    - svm
+    - random_forest
+    - knn
+  output_regression_metrics: "results/tables/section_ml_regression_metrics.csv"
+  output_regression_predictions: "results/tables/section_ml_regression_predictions.csv"
+  output_classification_metrics: "results/tables/section_ml_classification_metrics.csv"
+  output_classification_predictions: "results/tables/section_ml_classification_predictions.csv"
+  output_feature_importance: "results/tables/section_ml_feature_importance.csv"
+  output_figures_dir: "results/figures/section_ml"
