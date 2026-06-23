@@ -222,3 +222,54 @@ conditions:
     powder_feed_g_min: 40
     travel_distance_mm: 30
     tracks: [T1, T2, T3]
+
+# ============================================================
+# FORMAL FIXED HARDWARE / PROCESS PARAMETERS (user-confirmed)
+# Held constant across all 19 conditions and all 57 tracks. The per-condition
+# `powder_feed_g_min: 40` above is the SET value (kept for backward
+# compatibility); the authoritative set/actual split lives in `powder_feed`.
+# ============================================================
+fixed_process_parameters:
+  laser_spot_diameter_mm: 1.0
+  defocus_mm: 14.0
+  defocus_sign: positive
+  # Positive defocus = focal plane is ABOVE the substrate surface.
+  positive_defocus_definition: focal_plane_above_substrate_surface
+  travel_distance_mm: 30
+  status: confirmed
+  source: user_confirmed
+
+# Powder feed: 40 g/min is the EQUIPMENT SETPOINT, not a gravimetric measurement.
+# Do NOT copy 40 into powder_feed_actual_g_min (it was never weighed).
+powder_feed:
+  powder_feed_set_g_min: 40.0
+  powder_feed_actual_g_min: null
+  powder_feed_actual_status: not_measured
+  powder_feed_source: equipment_setpoint
+
+# Substrate: one independent 316L plate per condition; T1/T2/T3 share that plate.
+substrate:
+  material: 316L
+  length_mm: 40.0
+  width_mm: 16.0
+  thickness_mm: 8.0
+  one_plate_per_condition: true
+  tracks_per_plate: 3
+  plate_count: 19
+  # plate_id is a LOGICAL data-management id (Plate-<condition_id>); it does NOT
+  # claim the physical plates were stamped with these numbers at experiment time.
+  plate_id_type: logical_condition_based_identifier
+  plate_id_rule: "Plate-{condition_id}"
+  plate_assignment_source: user_confirmed
+
+# In-plate track repetition: on each plate the three single tracks are produced
+# in order T1 -> T2 -> T3 with a 120 s cooling interval BETWEEN CONSECUTIVE TRACKS.
+# This is the in-plate inter-track interval, NOT a between-condition/plate cooling.
+track_repetition:
+  track_order:
+    T1: 1
+    T2: 2
+    T3: 3
+  cooling_interval_between_tracks_s: 120.0
+  cooling_interval_status: confirmed
+  source: user_confirmed

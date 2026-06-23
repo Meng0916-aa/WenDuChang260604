@@ -2,22 +2,29 @@
 00_build_experiment_master.py
 
 Build the per-single-track metadata map (experiment_master.csv) from:
-  - the formal design          configs/experiments.yaml   (process parameters)
-  - the formal calibration     configs/physical_calibration.yaml (spatial scale)
+  - the formal design          configs/experiments.yaml   (process parameters,
+                               fixed hardware params, powder feed, substrate,
+                               track-repetition / cooling)
+  - the formal calibration     configs/physical_calibration.yaml (spatial scale,
+                               image geometry / scan direction, temperature
+                               measurement range, frame rate, working distance,
+                               effective-frame rule)
   - the REAL raw-data tree     (folder / session / frame counts)
 
 One row per single track -> 19 conditions x 3 tracks = 57 rows.
 
-- Process parameters come from configs/experiments.yaml (the single source of
-  truth) plus its `process_parameters` provenance block.
-- Spatial calibration values come from configs/physical_calibration.yaml via the
-  validated loader (src/config/physical_calibration.py) -> a single active
-  calibration, never the legacy pixel size.
+- All formal values come from the two committed config files (single sources of
+  truth). Nothing here is guessed: parameters that are genuinely not recorded
+  (emissivity, transmission, actual powder feed) are written BLANK.
+- Spatial calibration + image geometry + acquisition values come from
+  configs/physical_calibration.yaml via the validated loader
+  (src/config/physical_calibration.py) -> one active calibration, never legacy.
 - READ-ONLY with respect to raw data: only lists files, never opens/modifies.
 - Output (data/metadata/experiment_master.csv) is LOCAL ONLY (git-ignored *.csv).
 
-Unknown metadata is left BLANK on purpose (never guessed): frame_rate_fps,
-effective_start_frame, effective_end_frame, scan_axis, scan_direction, plate_id.
+Logical plate id: each condition uses ONE independent 316L plate; its three
+single tracks (T1/T2/T3) share that plate -> plate_id = "Plate-<condition_id>".
+This is a data-management identifier, NOT a physical stamp on the plate.
 
 Usage:
     python scripts/00_build_experiment_master.py \
@@ -40,26 +47,53 @@ from config.physical_calibration import load_physical_calibration
 
 # Exact column order for experiment_master.csv (one row per single track).
 COLUMNS = [
-    "condition_id", "track_id", "sample_id", "design_role",
+    # --- identity ---
+    "condition_id", "track_id", "sample_id", "design_role", "track_order",
+    # --- substrate / logical plate ---
+    "plate_id", "plate_id_type",
+    "substrate_material",
+    "substrate_length_mm", "substrate_width_mm", "substrate_thickness_mm",
+    # --- response-surface factors ---
     "laser_power_W", "scan_speed_mm_min", "magnetic_field_mT",
-    "powder_feed_g_min", "travel_distance_mm",
+    # --- powder feed (set vs actual) ---
+    "powder_feed_g_min",            # backward-compat alias of the SET value
+    "powder_feed_set_g_min", "powder_feed_actual_g_min", "powder_feed_actual_status",
+    # --- fixed laser / optics + run geometry ---
+    "laser_spot_diameter_mm", "defocus_mm", "defocus_sign",
+    "travel_distance_mm", "cooling_interval_between_tracks_s",
+    # --- process-parameter provenance ---
     "process_parameter_source", "process_parameter_status",
+    # --- acquisition / time (frame index based) ---
+    "frame_rate_fps",
+    "effective_start_frame_number_1_based", "effective_start_frame_index_0_based",
+    "effective_end_rule", "excluded_initial_frame_reason",
+    # --- image geometry / scan direction ---
+    "scan_axis", "transverse_axis",
+    "image_scan_direction", "array_scan_direction", "physical_to_array_y_sign",
+    "scan_direction",               # backward-compat alias of image_scan_direction
+    # --- spatial calibration ---
     "calibration_id", "calibration_status", "calibration_source",
-    "pixel_size_x_mm", "pixel_size_y_mm", "pixel_area_mm2",
-    "isotropic_scaling_assumed",
+    "calibration_reference_axis",
+    "pixel_size_x_mm", "pixel_size_y_mm", "pixel_area_mm2", "isotropic_scaling_assumed",
+    # --- temperature measurement range ---
+    "valid_temperature_min_C", "valid_temperature_max_C", "hard_saturation_threshold_C",
+    # --- camera / optics ---
+    "working_distance_mm", "working_distance_reference",
+    # --- radiometric inputs (not recorded) ---
+    "emissivity", "transmission",
+    # --- raw-data location (read-only listing) ---
     "raw_folder", "session_xml", "xtherm_count",
-    "frame_rate_fps", "effective_start_frame", "effective_end_frame",
-    "scan_axis", "scan_direction",
-    "track_order", "plate_id", "processing_status", "notes",
+    # --- status ---
+    "processing_status", "metadata_status", "notes",
 ]
 
-# Fields intentionally left blank until confirmed from real records.
-BLANK_FIELDS = (
-    "frame_rate_fps", "effective_start_frame", "effective_end_frame",
-    "scan_axis", "scan_direction", "plate_id",
-)
-
 PROCESSING_STATUS = "raw_only"
+METADATA_STATUS = "confirmed_core_parameters"
+
+
+def _blank(value):
+    """Render None as an empty CSV cell (intentionally-blank, not guessed)."""
+    return "" if value is None else value
 
 
 def load_experiments(config_path):
@@ -84,22 +118,79 @@ def build_rows(cfg, calib, proc):
     raw_root = cfg["raw_data_root"]
     track_order_map = cfg.get("track_order_map", {"T1": 1, "T2": 2, "T3": 3})
 
+    fixed = cfg.get("fixed_process_parameters", {})
+    powder = cfg.get("powder_feed", {})
+    substrate = cfg.get("substrate", {})
+    repetition = cfg.get("track_repetition", {})
+
     sp = calib.spatial
-    calib_fields = {
+
+    # Values that are identical for every track (formal, confirmed).
+    common = {
+        # powder feed
+        "powder_feed_set_g_min": powder.get("powder_feed_set_g_min"),
+        "powder_feed_actual_g_min": powder.get("powder_feed_actual_g_min"),  # None -> blank
+        "powder_feed_actual_status": powder.get("powder_feed_actual_status"),
+        # fixed laser / optics
+        "laser_spot_diameter_mm": fixed.get("laser_spot_diameter_mm"),
+        "defocus_mm": fixed.get("defocus_mm"),
+        "defocus_sign": fixed.get("defocus_sign"),
+        "cooling_interval_between_tracks_s": repetition.get("cooling_interval_between_tracks_s"),
+        # process provenance
+        "process_parameter_source": proc.get("source", ""),
+        "process_parameter_status": proc.get("status", ""),
+        # substrate
+        "plate_id_type": substrate.get("plate_id_type"),
+        "substrate_material": substrate.get("material"),
+        "substrate_length_mm": substrate.get("length_mm"),
+        "substrate_width_mm": substrate.get("width_mm"),
+        "substrate_thickness_mm": substrate.get("thickness_mm"),
+        # acquisition / time (frame-index based)
+        "frame_rate_fps": calib.frame_rate_fps,
+        "effective_start_frame_number_1_based":
+            calib.effective_frame_rule.get("start_frame_number_1_based"),
+        "effective_start_frame_index_0_based":
+            calib.effective_frame_rule.get("start_frame_index_0_based"),
+        "effective_end_rule": calib.effective_frame_rule.get("end_rule"),
+        "excluded_initial_frame_reason":
+            calib.effective_frame_rule.get("excluded_initial_frame_reason"),
+        # image geometry / scan direction
+        "scan_axis": calib.scan_axis,
+        "transverse_axis": calib.transverse_axis,
+        "image_scan_direction": calib.image_scan_direction,
+        "array_scan_direction": calib.array_scan_direction,
+        "physical_to_array_y_sign": calib.physical_to_array_y_sign,
+        "scan_direction": calib.scan_direction,
+        # spatial calibration
         "calibration_id": calib.calibration_id,
         "calibration_status": sp["calibration_status"],
         "calibration_source": sp["calibration_source"],
+        "calibration_reference_axis": calib.calibration_reference_axis,
         "pixel_size_x_mm": calib.pixel_size_x_mm,
         "pixel_size_y_mm": calib.pixel_size_y_mm,
         "pixel_area_mm2": calib.pixel_area_mm2,
-        # textual lower-case to match the documented form (true/false)
         "isotropic_scaling_assumed": str(bool(calib.isotropic)).lower(),
+        # temperature measurement range
+        "valid_temperature_min_C": calib.valid_temperature_min_C,
+        "valid_temperature_max_C": calib.valid_temperature_max_C,
+        "hard_saturation_threshold_C": calib.hard_saturation_threshold_C,
+        # camera / optics
+        "working_distance_mm": calib.working_distance_mm,
+        "working_distance_reference": calib.working_distance_reference,
+        # radiometric inputs (not recorded -> blank)
+        "emissivity": calib.temperature.get("emissivity"),
+        "transmission": calib.temperature.get("transmission"),
+        # status
+        "processing_status": PROCESSING_STATUS,
+        "metadata_status": METADATA_STATUS,
+        "notes": "",
     }
 
     rows = []
     warnings = []
     for cond in cfg["conditions"]:
         cid = cond["condition_id"]
+        plate_id = f"Plate-{cid}"
         for track in cond["tracks"]:
             folder = "/".join([raw_root.rstrip("/"), cid, track])
             session_path = "/".join([folder, "session.xml"])
@@ -118,24 +209,20 @@ def build_rows(cfg, calib, proc):
                 "track_id": track,
                 "sample_id": f"{cid}_{track}",
                 "design_role": cond["design_role"],
+                "track_order": track_order_map[track],
+                "plate_id": plate_id,
                 "laser_power_W": cond["laser_power_W"],
                 "scan_speed_mm_min": cond["scan_speed_mm_min"],
                 "magnetic_field_mT": cond["magnetic_field_mT"],
+                # backward-compat alias of the SET powder feed value
                 "powder_feed_g_min": cond["powder_feed_g_min"],
                 "travel_distance_mm": cond["travel_distance_mm"],
-                "process_parameter_source": proc["source"],
-                "process_parameter_status": proc["status"],
                 "raw_folder": folder,
                 "session_xml": session_val,
                 "xtherm_count": xcount,
-                "track_order": track_order_map[track],
-                "processing_status": PROCESSING_STATUS,
-                "notes": "",
             }
-            row.update(calib_fields)
-            for blank in BLANK_FIELDS:
-                row[blank] = ""
-            rows.append(row)
+            row.update(common)
+            rows.append({k: _blank(row.get(k)) for k in COLUMNS})
     return rows, warnings
 
 
@@ -160,8 +247,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_experiments(args.config)
-    proc = cfg.get("process_parameters",
-                   {"source": "", "status": ""})
+    proc = cfg.get("process_parameters", {"source": "", "status": ""})
     calib = load_physical_calibration(args.calibration_config)   # validates
 
     rows, warnings = build_rows(cfg, calib, proc)
@@ -169,10 +255,13 @@ def main():
 
     n_conditions = len({r["condition_id"] for r in rows})
     n_sample_ids = len({r["sample_id"] for r in rows})
+    n_plates = len({r["plate_id"] for r in rows})
+    tracks_per_plate = {p: 0 for p in {r["plate_id"] for r in rows}}
+    for r in rows:
+        tracks_per_plate[r["plate_id"]] += 1
+    plates_with_3 = sum(1 for v in tracks_per_plate.values() if v == 3)
     total_xtherm = sum(int(r["xtherm_count"]) for r in rows)
     n_session = sum(1 for r in rows if r["session_xml"])
-    n_proc = sum(1 for r in rows if r["process_parameter_status"] == "confirmed")
-    n_calib = sum(1 for r in rows if r["calibration_status"] == "confirmed")
 
     print("[00] experiment_master built (LOCAL ONLY; not committed)")
     print("-" * 64)
@@ -180,13 +269,19 @@ def main():
     print(f"[00] conditions         : {n_conditions}")
     print(f"[00] track rows         : {len(rows)}")
     print(f"[00] unique sample_id   : {n_sample_ids}")
+    print(f"[00] unique plate_id    : {n_plates}  (expect 19; 1 plate/condition)")
+    print(f"[00] plates with 3 tks  : {plates_with_3}/{n_plates}")
     print(f"[00] session.xml found  : {n_session}")
     print(f"[00] total .xtherm      : {total_xtherm}")
-    print(f"[00] process confirmed  : {n_proc}")
-    print(f"[00] calibration done   : {n_calib}  (id={calib.calibration_id}, "
-          f"px={calib.pixel_size_x_mm} mm, area={calib.pixel_area_mm2} mm^2)")
-    print(f"[00] processing_status  : all '{PROCESSING_STATUS}'")
-    print(f"[00] blank fields       : {', '.join(BLANK_FIELDS)} (by design)")
+    print(f"[00] frame_rate_fps     : {calib.frame_rate_fps} (confirmed)")
+    print(f"[00] scan_axis          : {calib.scan_axis} / {calib.image_scan_direction} "
+          f"(array {calib.array_scan_direction}, y-sign {calib.physical_to_array_y_sign})")
+    print(f"[00] valid temp range C : {calib.valid_temperature_min_C}..{calib.valid_temperature_max_C}")
+    print(f"[00] working distance   : {calib.working_distance_mm} mm "
+          f"({calib.working_distance_reference})")
+    print(f"[00] calibration        : id={calib.calibration_id}, "
+          f"px={calib.pixel_size_x_mm} mm, axis={calib.calibration_reference_axis}")
+    print(f"[00] blank by design    : powder_feed_actual_g_min, emissivity, transmission")
 
     if warnings:
         print("-" * 64)

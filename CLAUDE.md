@@ -91,9 +91,13 @@ Then run Python scripts in the active pytorch environment.
   `data/raw_xtherm/dataset`.
 - Scan speed is always **mm/min** (never mm/s). `sample_id = condition_id + "_" + track_id`.
   The per-track map is built locally to `data/metadata/experiment_master.csv` by
-  `scripts/00_build_experiment_master.py` (LOCAL ONLY; `*.csv` is git-ignored). Unknown
-  fields (`frame_rate_fps`, `effective_start_frame`, `effective_end_frame`, `scan_axis`,
-  `scan_direction`, `plate_id`) are left BLANK, never guessed.
+  `scripts/00_build_experiment_master.py` (LOCAL ONLY; `*.csv` is git-ignored). As of the
+  metadata freeze, `frame_rate_fps` (52), the effective-frame rule, `scan_axis` (y) /
+  `image_scan_direction` (upward), working distance (300 mm), defocus (+14 mm), spot (1 mm),
+  powder-feed setpoint (40), substrate (316L 40×16×8) and `plate_id` (`Plate-<condition_id>`)
+  are all CONFIRMED and written to every row. Only `emissivity`, `transmission`,
+  `exposure_time_us`, `lens_model` (and a per-track numeric effective-end) remain BLANK —
+  never guessed.
 
 ## Physical Calibration (formal — single source of truth)
 - Formal spatial scale is **150.2 px = 5 mm → `pixel_size_x_mm = pixel_size_y_mm =
@@ -103,14 +107,32 @@ Then run Python scripts in the active pytorch environment.
   MUST read the pixel size from there — NEVER from `configs/default.yaml`'s legacy
   `pixel_size_mm: 0.03128` (95.9 px = 3 mm), which is `legacy_pilot_only` and disabled
   for formal processing.
-- X and Y currently share one scale (`isotropic_scaling_assumed: true`); X/Y anisotropy is
-  NOT yet verified. Do not run formal processing with two active pixel sizes at once.
-- `frame_rate_fps` is **unconfirmed** (historical 52 vs 1000 conflict) → kept null. All time
-  axes use the **frame index**, never seconds. `require_frame_rate()` raises for time-domain
-  features (cooling rate / dwell / AUC / scan-distance-per-frame) until a real fps is given.
-- Temperature: saturated/sentinel pixels at the uint16 ceiling **6553.5 °C** are masked for
-  analysis only; raw `.xtherm` and converted matrices are never modified. Prefer the robust
-  **P99.9** peak over raw max.
+- The Y scale is **measured** (`calibration_reference_axis: y`); X is **assumed equal**
+  (`isotropic_scaling_assumed: true`). X/Y anisotropy is NOT verified — never claim X and Y
+  were each calibrated. Do not run formal processing with two active pixel sizes at once.
+- **Image geometry CONFIRMED:** `scan_axis: y`, `transverse_axis: x`,
+  `image_scan_direction: upward`, `array_scan_direction: decreasing_row_index`,
+  `physical_to_array_y_sign: -1`; no rotation/flip. Array origin is image top-left, rows
+  increase downward, so the melt pool's row index DECREASES over time; physical +Y = image up.
+  The scan direction is user-defined — later QC may check it but must NOT override it.
+- **`frame_rate_fps = 52` CONFIRMED** (`user_confirmed_experimental_setting`, NOT from
+  `session.xml`). Effective-frame rule (all 57 tracks): exclude startup frame 1; effective =
+  frames 2…last (1-based) = `frames[1:]` (0-based start 1); `last_available_frame` is the data
+  end, NOT a slice-exclusive endpoint. `require_frame_rate()` now returns 52. (Matrices are
+  NOT reprocessed in this phase.)
+- **Camera valid range CONFIRMED 300–1800 °C.** Four states (raw NEVER modified/truncated):
+  `<300` below_range, `300–1800` valid, `1800<T<6500` above_range, `≥6500` hard_saturation
+  (uint16 ceiling 6553.5 °C). Mask-and-report only; P99.9 robust peak is computed WITHIN the
+  valid band and the above-range ratio reported alongside. `2739/3085/3000–3700/6553.5 °C` are
+  NOT real melt-pool temperatures. Emissivity/transmission are `not_recorded`, so results are
+  the **infrared apparent temperature field**, not radiometrically-corrected absolute surface T.
+- **Camera/optics & substrate CONFIRMED:** working distance **300 mm**
+  (`protective_window_to_molten_pool`; the old 30 mm was an `incorrect_legacy_value`), laser
+  spot **1 mm**, defocus **+14 mm** (focal plane above surface), powder-feed **setpoint 40 g/min**
+  (`powder_feed_actual_g_min` stays null / `not_measured`). Substrate: **316L 40×16×8 mm**, ONE
+  plate per condition (19 plates), `plate_id = Plate-<condition_id>`
+  (`logical_condition_based_identifier`), 120 s in-plate inter-track cooling. T1/T2/T3 are
+  in-plate repeats — condition effect and plate-to-plate variation cannot be fully separated.
 
 ## GitHub Sync Rule
 Repo: https://github.com/Meng0916-aa/WenDuChang260604 (already exists; remote branch `main`).

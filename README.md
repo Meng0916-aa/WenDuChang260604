@@ -36,23 +36,29 @@ and assess **cladding quality** under **with / without magnetic field** conditio
 ## Physical calibration & current feature scope
 
 **Spatial calibration (formal, user-confirmed): 150.2 px = 5 mm → `0.0332889481` mm/px**
-(`pixel_area_mm2 = 0.0011081541` mm²). Single source of truth:
-`configs/physical_calibration.yaml`, loaded/validated by
+(`pixel_area_mm2 = 0.0011081541` mm², measured along the **Y/vertical** axis). Single source
+of truth: `configs/physical_calibration.yaml`, loaded/validated by
 `src/config/physical_calibration.py`. The legacy pilot value `0.03128` mm/px (95.9 px = 3 mm)
-is **not** used for formal processing; X and Y share one scale (X/Y anisotropy not yet
-verified). `frame_rate_fps` is unconfirmed (historical 52 vs 1000 conflict) → all time axes
-use the **frame index**, never seconds. Details:
-`docs/physical_calibration_and_process_parameters_to_confirm.md`.
+is **not** used for formal processing; X is **assumed equal** to Y (X/Y anisotropy not yet
+verified). **Image geometry confirmed:** `scan_axis = y`, melt pool moves toward the image
+**top** (`image_scan_direction = upward`, array row index decreasing, `physical_to_array_y_sign
+= -1`), no rotation/flip. **Frame rate confirmed `52 fps`** (user setting, not `session.xml`);
+effective frames = `frames[1:]` (startup frame 1 excluded). **Camera valid range 300–1800 °C**
+(outside → masked & reported; raw never modified; >1800 °C is `above_range`, ≥6500 °C is
+`hard_saturation`). Working distance **300 mm**, laser spot **1 mm**, defocus **+14 mm**,
+powder-feed setpoint **40 g/min** (actual not measured). Emissivity/transmission `not_recorded`
+→ results are the **infrared apparent temperature field**, not absolute surface temperature.
+Details: `docs/physical_calibration_and_process_parameters_to_confirm.md`.
 
-**Computable now** (spatial/temperature, frame-index): temperature statistics (°C); robust
-peak **P99.9** (°C); high-temperature pixel count; high-temperature **area (mm²)**; 700 °C
-isotherm **width (mm)**; hot-zone bounding-box size (mm); **unsigned** spatial gradient
-magnitude (°C/mm); **unsigned** center-offset distance (mm).
+**Computable now** (apparent-temperature, frame rate available): valid-band statistics (°C);
+robust peak **P99.9** (°C) within band; above-range / hard-saturation pixel counts & ratios;
+high-temperature **area (mm²)**; 700/800 °C isotherm **width (mm)**; hot-zone bounding-box
+(mm); **scan-direction & transverse** gradients (°C/mm); **signed** center offset (mm);
+left/right asymmetry; cooling rate (°C/s), dwell time (s), temperature AUC (°C·s), scan
+distance per frame (mm), scan duration (s).
 
-**Not computable yet**: scan-direction & transverse gradients, signed center offset,
-left/right area asymmetry (need `scan_axis`/`scan_direction`); cooling rate (°C/s), dwell
-time (s), temperature AUC (°C·s), scan distance per frame (mm), scan duration (s) (need a
-confirmed `frame_rate_fps`).
+**Still required before formal feature extraction** (not run here): unified ROI confirmation,
+invalid-pixel masking, valid-range masking, final feature-definition review.
 
 ## Environment
 

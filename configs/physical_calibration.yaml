@@ -14,7 +14,10 @@ spatial_calibration:
   calibration_source: user_confirmed
   calibration_reference_length_mm: 5.0
   calibration_reference_pixels: 150.2
-  calibration_reference_axis: unspecified
+  # The 150.2 px = 5 mm reference was measured along the IMAGE VERTICAL (Y) axis.
+  # Y scale is measured; X scale is assumed equal (isotropic) and NOT independently
+  # calibrated. Do NOT claim both X and Y were calibrated separately.
+  calibration_reference_axis: y
   # 5 / 150.2 = 0.033288948069241 mm/pixel
   pixel_size_x_mm: 0.0332889481
   pixel_size_y_mm: 0.0332889481
@@ -29,14 +32,33 @@ spatial_calibration:
     yet been independently verified.
 
 image_geometry:
+  # User-confirmed image orientation and scan geometry (no transforms applied).
+  geometry_status: confirmed
+  geometry_source: user_confirmed
   image_height_px: 512
   image_width_px: 640
-  scan_axis: null
-  scan_direction: null
-  transverse_axis: null
-  rotation_deg: null
-  flip_horizontal: null
-  flip_vertical: null
+
+  scan_axis: y                # melt pool travels along the image vertical axis
+  transverse_axis: x          # cross-scan (width) axis
+
+  image_scan_direction: upward            # melt pool moves toward image top over time
+  array_scan_direction: decreasing_row_index  # therefore NumPy row index DECREASES
+
+  physical_positive_y_direction: image_upward
+  physical_to_array_y_sign: -1   # physical +Y (up) -> decreasing array row index
+
+  rotation_deg: 0
+  flip_horizontal: false
+  flip_vertical: false
+  # Backward-compat alias of image_scan_direction (older loaders read scan_direction).
+  scan_direction: upward
+  # Coordinate meaning (see docs):
+  #   NumPy array origin is the image TOP-LEFT; row index increases DOWNWARD.
+  #   The melt pool moves toward the image TOP over time, so the array row index
+  #   DECREASES during scanning. Physical +Y corresponds to image UP.
+  #   A signed coordinate (after ROI fixes a reference row) may use:
+  #     y_physical_mm = (reference_row_px - row_index_px) * pixel_size_y_mm
+  #   No physical zero/reference origin is defined in this phase.
 
 temperature_calibration:
   calibration_status: binary_format_verified
@@ -50,15 +72,77 @@ temperature_calibration:
   robust_peak_quantile: 0.999
   saturation_handling: mask_for_analysis_do_not_modify_raw_or_matrix
   invalid_value_policy: mask_flag_and_report
+
+  # --- Camera valid measurement range (user-confirmed) ---
+  # The infrared camera is quantitatively valid only over 300-1800 C. Values
+  # outside this band are NOT real temperatures and must be masked (not modified
+  # in the raw data / matrices) and reported.
+  valid_temperature_min_C: 300.0
+  valid_temperature_max_C: 1800.0
+  measurement_range_status: confirmed
+  measurement_range_source: user_confirmed
+  camera_temperature_range_C: [300.0, 1800.0]
+
+  # Radiometric correction inputs are NOT recorded -> outputs are APPARENT
+  # temperature, not radiometrically-corrected absolute surface temperature.
   emissivity: null
+  emissivity_status: not_recorded
   transmission: null
-  camera_temperature_range_C: null
+  transmission_status: not_recorded
+
+# Four temperature states for analysis (raw matrices are NEVER modified):
+#   T < 300 C            : below camera valid lower limit (not a quantitative value)
+#   300 <= T <= 1800 C   : valid quantitative measurement band
+#   1800 < T < 6500 C    : above_range (over the camera upper limit; not real temperature)
+#   T >= 6500 C          : hard_saturation (uint16 ceiling / invalid encoding)
+# P99.9 robust peak is computed WITHIN the valid band only; when the in-band peak
+# approaches 1800 C the above-range ratio must be reported alongside it.
+temperature_analysis_policy:
+  preserve_raw_matrix: true
+  below_range_policy: mask_and_report
+  above_range_policy: mask_and_report
+  hard_saturation_policy: mask_and_report
+  interpolate_invalid_pixels: false
+  robust_peak_quantile: 0.999
+  # Quality metrics that downstream feature code should report per track/frame.
+  report_metrics:
+    - below_range_pixel_count
+    - below_range_pixel_ratio
+    - above_range_pixel_count
+    - above_range_pixel_ratio
+    - hard_saturation_pixel_count
+    - hard_saturation_pixel_ratio
 
 acquisition:
-  frame_rate_fps: null
+  # Frame rate is a user-confirmed experimental SETTING (not read from session.xml).
+  frame_rate_fps: 52.0
+  frame_rate_status: confirmed
+  frame_rate_source: user_confirmed_experimental_setting
+
+  # Working distance = fixed protective-window-to-molten-pool distance = 300 mm.
+  # An earlier 30 mm value was an incorrect_legacy_value and must not be used.
+  working_distance_mm: 300.0
+  working_distance_reference: protective_window_to_molten_pool
+  working_distance_status: confirmed
+  working_distance_source: user_confirmed
+
   exposure_time_us: null
-  working_distance_mm: null
+  exposure_time_status: not_recorded
   lens_model: null
+  lens_model_status: not_recorded
+
+# Effective-frame rule (applies to ALL 57 single tracks):
+#   frame 1 (1-based) = camera startup frame -> EXCLUDED
+#   frames 2..last (1-based) = effective; in Python this is frames[1:]
+#   "last_available_frame" is the END of the data, NOT a slice-exclusive endpoint.
+effective_frame_rule:
+  applies_to_all_tracks: true
+  start_frame_number_1_based: 2
+  start_frame_index_0_based: 1
+  end_rule: last_available_frame
+  excluded_initial_frame_count: 1
+  excluded_initial_frame_reason: camera_startup_frame
+  source: user_confirmed
 
 legacy_calibration:
   enabled_for_formal_processing: false

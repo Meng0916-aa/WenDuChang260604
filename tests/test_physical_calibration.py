@@ -138,29 +138,34 @@ def test_t1_t2_t3_process_params_consistent():
 
 
 # 11 ------------------------------------------------------------------------
-def test_frame_rate_stays_empty():
+def test_frame_rate_confirmed_52():
+    """Frame rate is now a user-confirmed setting (52 fps), not blank."""
     cal = load_physical_calibration(CAL_FILE)
-    assert cal.frame_rate_fps is None
-    assert cal.has_frame_rate() is False
+    assert cal.frame_rate_fps == 52.0
+    assert cal.has_frame_rate() is True
     rows = _master_rows()
-    assert all(str(r["frame_rate_fps"]).strip() == "" for r in rows)
+    assert all(abs(float(r["frame_rate_fps"]) - 52.0) < 1e-9 for r in rows)
 
 
 # 12 ------------------------------------------------------------------------
-def test_scan_axis_and_direction_stay_empty():
+def test_scan_axis_confirmed_y():
+    """Scan geometry is now user-confirmed: axis=y, image direction upward."""
     cal = load_physical_calibration(CAL_FILE)
-    assert cal.scan_axis is None
-    assert cal.scan_direction is None
+    assert cal.scan_axis == "y"
+    assert cal.transverse_axis == "x"
+    assert cal.image_scan_direction == "upward"
+    assert cal.array_scan_direction == "decreasing_row_index"
+    assert cal.physical_to_array_y_sign == -1
     rows = _master_rows()
-    assert all(str(r["scan_axis"]).strip() == "" for r in rows)
-    assert all(str(r["scan_direction"]).strip() == "" for r in rows)
+    assert all(r["scan_axis"] == "y" for r in rows)
+    assert all(r["image_scan_direction"] == "upward" for r in rows)
 
 
 # 13 ------------------------------------------------------------------------
-def test_time_feature_request_fails_without_frame_rate():
+def test_time_feature_now_available_with_frame_rate():
+    """With a confirmed frame rate, require_frame_rate() returns it (no raise)."""
     cal = load_physical_calibration(CAL_FILE)
-    with pytest.raises(CalibrationError):
-        cal.require_frame_rate()
+    assert cal.require_frame_rate() == 52.0
 
 
 # 14 ------------------------------------------------------------------------

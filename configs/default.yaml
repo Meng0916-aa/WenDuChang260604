@@ -36,7 +36,14 @@ data:
   unit: "Celsius"
   dtype: "float32"
   shape_format: "NCHW"        # N = frames, H = height, W = width
-  valid_range: [0.0, 3000.0]  # valid Celsius range
+  # LEGACY conversion-time over-range guard (NOT the formal measurement range).
+  # not_active_for_formal_processing. The FORMAL camera measurement range is
+  # 300-1800 C, defined in configs/physical_calibration.yaml
+  # (temperature_calibration.valid_temperature_min_C / valid_temperature_max_C);
+  # 1800-6500 C is above_range and >=6500 C is hard_saturation. This 3000 C value
+  # only flags gross over-range during raw->Celsius conversion QC and is kept
+  # solely for backward compatibility with the existing conversion checks.
+  valid_range: [0.0, 3000.0]  # legacy conversion QC guard (see note above)
   # If exported matrices are already in Celsius, set true so 02 does NOT
   # divide by 10 again. If they are still raw digital counts, set false.
   # NOTE: script 02b (xtherm_binary) already applies scale_factor=0.1, so its
@@ -209,7 +216,10 @@ visualization:
 # Extracts time-series features from thermal-cycle curves (output of script 04)
 # for Chapter-3 analysis. Independent of the dataset/training frame settings.
 temporal_analysis:
-  frame_rate_fps: 1000          # frames per second; sets the time axis (seconds)
+  # Formal confirmed frame rate is 52 fps (configs/physical_calibration.yaml ->
+  # acquisition.frame_rate_fps). The earlier 1000 fps was an incorrect_legacy_value
+  # and has been retired; do NOT reintroduce 1000 as an active value.
+  frame_rate_fps: 52            # frames per second; sets the time axis (seconds)
   smooth_window: 5              # moving-average window (<=1 disables smoothing)
   dwell_threshold: 800.0        # Celsius; dwell time counts frames >= this
   max_examples_to_plot: 3       # number of typical curve+derivative plots
@@ -230,11 +240,13 @@ temporal_analysis:
 thermal_field_features:
   high_temp_threshold: 800.0    # Celsius; melt-pool / high-temperature zone
   haz_threshold: 700.0          # Celsius; heat-affected-zone boundary
-  pixel_size_mm: 0.03128           # LEGACY pilot value (95.9 px = 3 mm). NOT the formal
-                                   # scale. Formal processing uses configs/physical_calibration.yaml
-                                   # (150.2 px = 5 mm -> 0.0332889481 mm/px). Kept only so the
+  pixel_size_mm: 0.03128           # LEGACY pilot value (95.9 px = 3 mm).
+                                   # not_active_for_formal_processing. Formal processing reads the
+                                   # pixel size from configs/physical_calibration.yaml
+                                   # (150.2 px = 5 mm -> 0.0332889481 mm/px, axis=y). Kept only so the
                                    # existing feature/section tests still resolve a value.
-  frame_rate_fps: 52          # for cooling-rate / dwell-time (seconds)
+  frame_rate_fps: 52          # matches the formal confirmed frame rate. Authoritative source:
+                              # configs/physical_calibration.yaml -> acquisition.frame_rate_fps (52).
   center_threshold: 800.0       # threshold for the temperature-weighted center
   smooth_window: 5              # moving-average window for rate features
   input_dir: "data/processed/roi"

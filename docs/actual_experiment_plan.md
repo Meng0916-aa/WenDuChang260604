@@ -32,13 +32,26 @@ Three-factor, three-level **Box–Behnken Design (BBD)**. Coded levels -1 / 0 / 
 > A track is **with magnetic field** iff `magnetic_field_mT > 0`, otherwise
 > **without magnetic field**.
 
-## 3. Fixed process parameters
+## 3. Fixed process parameters (user-confirmed)
 
-| Parameter | Value |
-|-----------|------:|
-| Powder feed (`powder_feed_g_min`) | 40 g/min |
-| Travel distance (`travel_distance_mm`) | 30 mm |
-| Repeated tracks per condition | 3 (T1, T2, T3) |
+| Parameter | Value | Note |
+|-----------|------:|------|
+| Powder feed — **setpoint** (`powder_feed_set_g_min`) | 40 g/min | equipment setpoint |
+| Powder feed — **actual** (`powder_feed_actual_g_min`) | *null* | `not_measured` (never weighed) |
+| Travel distance (`travel_distance_mm`) | 30 mm | |
+| Laser spot diameter (`laser_spot_diameter_mm`) | 1.0 mm | |
+| Defocus (`defocus_mm`) | **+14.0 mm** | `positive` = focal plane **above** substrate surface |
+| Repeated tracks per condition | 3 (T1, T2, T3) | in-plate repeats |
+| Track order | T1 → T2 → T3 | `track_order` 1/2/3 |
+| Cooling between consecutive tracks | **120 s** | in-plate inter-track interval (not between conditions) |
+| Frame rate (`frame_rate_fps`) | **52 fps** | confirmed experimental setting (not from `session.xml`) |
+| Working distance | **300 mm** | protective-window-to-molten-pool (earlier 30 mm was wrong) |
+| Camera valid range | **300 – 1800 °C** | outside → masked & reported, raw never modified |
+
+> 40 g/min is the **setpoint** — do not write it into the *actual* powder-feed
+> field. The full machine-readable record lives in `configs/experiments.yaml`
+> (`fixed_process_parameters`, `powder_feed`, `track_repetition`) and
+> `configs/physical_calibration.yaml` (geometry, frame rate, range, optics).
 
 ## 4. The 19 conditions
 
@@ -84,6 +97,21 @@ repeats aggregated per condition (mean / std / coefficient of variation).
 
 `track_order`: T1 = 1, T2 = 2, T3 = 3. If real acquisition-order evidence
 contradicts this, **stop and report** — do not silently change it.
+
+### Substrate & logical plate mapping (CONFIRMED)
+
+Each of the 19 conditions uses **one independent 316L plate**
+(`40 × 16 × 8 mm`); its three single tracks **T1/T2/T3 are made on that same
+plate** in order T1 → T2 → T3, with **120 s cooling between consecutive tracks**.
+A logical plate id `Plate-<condition_id>` (e.g. `R5_T1/T2/T3 → Plate-R5`) is used
+for data management — `plate_id_type = logical_condition_based_identifier`; it
+does **not** claim the physical plates were stamped with these numbers.
+
+> **Design limitation (must be stated in analysis).** Because each condition has
+> exactly one plate and T1/T2/T3 are **in-plate repeats** (NOT three independent
+> plates), the **condition (process) effect and plate-to-plate individual
+> variation cannot be fully separated**. Do not describe T1/T2/T3 as three fully
+> independent substrate replicates.
 
 ## 6. Current phase: whole-track thermal-field analysis only
 
@@ -160,18 +188,22 @@ Formal spatial scale is **150.2 px = 5 mm → `pixel_size_x_mm = pixel_size_y_mm
 (`process_parameter_status: confirmed`). See
 `docs/physical_calibration_and_process_parameters_to_confirm.md`.
 
-### Metadata still pending (intentionally blank)
+### Metadata status after the freeze
 
-These fields are left empty until confirmed by real acquisition records — they
-are **not** guessed:
+Now **confirmed** (single source of truth in the two config files; mirrored into
+every row of `experiment_master.csv`):
 
-- `frame_rate_fps` — `session.xml` records `N/A`; config holds contradictory
-  values (52 vs 1000); the ~52 fps estimated from one earlier group must not be
-  applied to all 57 tracks. While unconfirmed, **all time axes use the frame
-  index, never seconds**.
-- `scan_axis`, `scan_direction` — needed for directional gradients, signed
-  center offset, and left/right asymmetry; not yet provided.
-- `effective_start_frame`, `effective_end_frame` — the effective cladding window;
-  to be auto-detected later (peak temperature / high-temperature area / time
-  curve) and human-reviewed.
-- `plate_id` — substrate plate id; not recorded in the data, must not be guessed.
+- `frame_rate_fps = 52` (confirmed experimental setting), effective-frame rule
+  (exclude startup frame 1; effective = `frames[1:]`);
+- `scan_axis = y`, `image_scan_direction = upward`,
+  `array_scan_direction = decreasing_row_index`, `physical_to_array_y_sign = −1`;
+- camera valid range **300–1800 °C** + four-state masking policy;
+- working distance **300 mm** (protective-window-to-molten-pool);
+- laser spot **1 mm**, defocus **+14 mm**, powder-feed **setpoint 40 g/min**;
+- substrate **316L 40×16×8 mm**, one plate per condition, `Plate-<condition_id>`,
+  120 s in-plate inter-track cooling.
+
+Still **not recorded** (kept null — never guessed): `emissivity`,
+`transmission`, `exposure_time_us`, `lens_model`. The per-track effective
+**end** uses the rule `last_available_frame` (no per-track numeric end yet). See
+`docs/physical_calibration_and_process_parameters_to_confirm.md`.

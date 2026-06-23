@@ -71,22 +71,60 @@ class PhysicalCalibration:
     def calibration_id(self):
         return self._cfg.get("calibration_id", "formal_150p2px_5mm")
 
+    @property
+    def calibration_reference_axis(self):
+        return self.spatial.get("calibration_reference_axis")
+
     # -- geometry -------------------------------------------------------
     @property
+    def geometry(self):
+        return self._cfg.get("image_geometry", {})
+
+    @property
     def image_height_px(self):
-        return int(self._cfg["image_geometry"]["image_height_px"])
+        return int(self.geometry["image_height_px"])
 
     @property
     def image_width_px(self):
-        return int(self._cfg["image_geometry"]["image_width_px"])
+        return int(self.geometry["image_width_px"])
 
     @property
     def scan_axis(self):
-        return self._cfg["image_geometry"].get("scan_axis")
+        return self.geometry.get("scan_axis")
+
+    @property
+    def transverse_axis(self):
+        return self.geometry.get("transverse_axis")
+
+    @property
+    def image_scan_direction(self):
+        return self.geometry.get("image_scan_direction")
+
+    @property
+    def array_scan_direction(self):
+        return self.geometry.get("array_scan_direction")
+
+    @property
+    def physical_to_array_y_sign(self):
+        sign = self.geometry.get("physical_to_array_y_sign")
+        return None if sign is None else int(sign)
+
+    @property
+    def rotation_deg(self):
+        return self.geometry.get("rotation_deg")
+
+    @property
+    def flip_horizontal(self):
+        return self.geometry.get("flip_horizontal")
+
+    @property
+    def flip_vertical(self):
+        return self.geometry.get("flip_vertical")
 
     @property
     def scan_direction(self):
-        return self._cfg["image_geometry"].get("scan_direction")
+        # Backward-compat: prefer the explicit image_scan_direction.
+        return self.geometry.get("scan_direction") or self.image_scan_direction
 
     # -- temperature ----------------------------------------------------
     @property
@@ -102,14 +140,52 @@ class PhysicalCalibration:
         return float(self.temperature["saturation_value_C"])
 
     @property
+    def hard_saturation_threshold_C(self):
+        return float(self.temperature["hard_saturation_threshold_C"])
+
+    @property
+    def valid_temperature_min_C(self):
+        return float(self.temperature["valid_temperature_min_C"])
+
+    @property
+    def valid_temperature_max_C(self):
+        return float(self.temperature["valid_temperature_max_C"])
+
+    @property
+    def measurement_range_status(self):
+        return self.temperature.get("measurement_range_status")
+
+    @property
     def robust_peak_quantile(self):
         return float(self.temperature["robust_peak_quantile"])
 
+    @property
+    def analysis_policy(self):
+        """Temperature-analysis policy (mask/report rules; raw never modified)."""
+        return self._cfg.get("temperature_analysis_policy", {})
+
     # -- acquisition / time ---------------------------------------------
+    @property
+    def acquisition(self):
+        return self._cfg.get("acquisition", {})
+
+    @property
+    def working_distance_mm(self):
+        wd = self.acquisition.get("working_distance_mm")
+        return None if wd is None else float(wd)
+
+    @property
+    def working_distance_reference(self):
+        return self.acquisition.get("working_distance_reference")
+
+    @property
+    def effective_frame_rule(self):
+        return self._cfg.get("effective_frame_rule", {})
+
     @property
     def frame_rate_fps(self):
         """Returns the confirmed frame rate or None (not yet confirmed)."""
-        return self._cfg.get("acquisition", {}).get("frame_rate_fps")
+        return self.acquisition.get("frame_rate_fps")
 
     def has_frame_rate(self):
         return self.frame_rate_fps is not None
@@ -158,6 +234,15 @@ def _validate(cfg, path, formal):
         raise CalibrationError(
             f"isotropic_scaling_assumed=true but pixel_size_x ({x}) != "
             f"pixel_size_y ({y}) in {path}")
+
+    # Geometry sanity (when a scan axis has been confirmed): the physical-Y to
+    # array-row sign must be exactly +/-1. Null/unspecified geometry is allowed.
+    geom = cfg.get("image_geometry", {})
+    if geom.get("scan_axis") is not None:
+        sign = geom.get("physical_to_array_y_sign")
+        if sign is not None and int(sign) not in (-1, 1):
+            raise CalibrationError(
+                f"physical_to_array_y_sign must be -1 or +1, got {sign!r} in {path}")
 
     if formal:
         if str(sp["calibration_status"]) != "confirmed":
