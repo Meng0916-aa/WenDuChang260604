@@ -70,6 +70,31 @@ Then run Python scripts in the active pytorch environment.
 - SIMULATED data (from `simulation` in the config) is for code-chain validation ONLY and
   must never be reported as an experimental conclusion.
 
+## Current Actual Experiment Design (formal — single source of truth)
+- The formal experiment is **19 conditions** (`C1`, `C2`, `R1`–`R17`), a three-factor
+  three-level **Box–Behnken Design** (laser power / scan speed / magnetic field). Full
+  parameters: `docs/actual_experiment_plan.md` + `configs/experiments.yaml` (machine-readable).
+- Each condition has **3 repeated single tracks** `T1/T2/T3` → **57 independent
+  temperature-field samples** total. The three tracks are repeated experiments, NOT one
+  track split in three.
+- **Single track = the processing unit.** Features are extracted per track (57 rows).
+- **Condition = the statistical aggregation unit.** Per-condition results aggregate the
+  three tracks (mean / std / coefficient of variation), giving 19 condition-level responses.
+- **NEVER concatenate** the raw frames of `T1/T2/T3` end-to-end. Each track is parsed and
+  feature-extracted independently.
+- **Current phase = whole-track thermal-field analysis only.** Do NOT slice tracks, measure
+  cross-sections, build section quality labels, run quality classification, or run scripts
+  **13–16**. Those scripts are kept but currently NOT run (later, section-quality phase).
+- **Canonical raw-data source** for all formal batch processing is the independent data repo
+  **`D:/WenDuChang-data-repo/raw_xtherm`** (`raw_data_root` in `configs/experiments.yaml`).
+  Do NOT use `data/raw_xtherm` as the formal source; exclude the early-test copy
+  `data/raw_xtherm/dataset`.
+- Scan speed is always **mm/min** (never mm/s). `sample_id = condition_id + "_" + track_id`.
+  The per-track map is built locally to `data/metadata/experiment_master.csv` by
+  `scripts/00_build_experiment_master.py` (LOCAL ONLY; `*.csv` is git-ignored). Unknown
+  fields (`frame_rate_fps`, `effective_start_frame`, `effective_end_frame`, `plate_id`)
+  are left BLANK, never guessed.
+
 ## GitHub Sync Rule
 Repo: https://github.com/Meng0916-aa/WenDuChang260604 (already exists; remote branch `main`).
 After completing a task, sync with `tools/safe_git_sync.ps1` (or the manual flow below).

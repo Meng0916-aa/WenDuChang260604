@@ -6,11 +6,28 @@ Process temperature field data from a **Xiris VXIR-3000** camera (WeldStudio Pro
 format), convert raw digital counts to degrees Celsius, extract temperature-field features,
 and assess **cladding quality** under **with / without magnetic field** conditions.
 
-> **Current main line (small samples): temperature-field features + traditional ML.**
-> Because the real dataset is small, the primary path extracts per-experiment thermal-field
-> features and trains traditional machine-learning models (Random Forest / SVM / KNN /
-> Logistic Regression) against substrate cross-section quality labels. See
-> `docs/ml_quality_assessment.md`.
+> **Formal experiment design — single source of truth:** 19 conditions
+> (`C1`, `C2`, `R1`–`R17`), a 3-factor 3-level **Box–Behnken Design**, each with 3 repeated
+> single tracks `T1/T2/T3` → **57 independent temperature-field samples**. See
+> `docs/actual_experiment_plan.md` and the machine-readable `configs/experiments.yaml`.
+> Canonical raw data: `D:/WenDuChang-data-repo/raw_xtherm`.
+>
+> **Current phase (now): process parameters → single-track temperature-field features.**
+> ```
+> process parameters → 57 independent single-track temperature fields
+>   → per-track thermal-field features (single track = processing unit)
+>   → per-condition aggregation over T1/T2/T3: mean / std / CV (condition = aggregation unit)
+>   → 19 condition-level thermal responses → response surface & magnetic-field effect
+> ```
+> The three tracks are repeated experiments — their raw frames are **never** concatenated.
+> This phase does **not** slice tracks, measure cross-sections, build quality labels, or run
+> quality classification.
+>
+> **Later phase (not now): temperature-field features + cross-section quality labels → quality prediction.**
+> Once cross-section quality labels exist, thermal-field features are joined with them to
+> train traditional ML models (Random Forest / SVM / KNN / Logistic Regression). The
+> section-level ML scripts **13–16** (and the label-dependent steps of `10–12`) are **kept
+> but currently NOT run** — do not delete them. See `docs/ml_quality_assessment.md`.
 >
 > **LSTM baseline is optional**, kept for when enough data is available for deep sequence
 > modeling. TCN / Transformer / LSTM-TCN remain guarded skeletons (`NotImplementedError`)
@@ -153,6 +170,7 @@ The LSTM baseline is best suited to **larger** datasets; with few experiments pr
 workflow A.
 
 **D. Section-level ML quality prediction** — `01 → 02b → 02 → 03 → 13 → 14 → 15 → 16`
+*(LATER PHASE — scripts 13–16 are currently **NOT run**; kept in the repo, not deleted. See the current/later-phase note at the top.)*
 
 ```powershell
 python scripts/01_check_raw_data.py --config configs/default.yaml

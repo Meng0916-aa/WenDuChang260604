@@ -1,0 +1,162 @@
+# Actual Experiment Plan (Formal)
+
+> **This is the formal experiment design and the single source of truth.**
+> The machine-readable copy is `configs/experiments.yaml`; all programs must
+> read process parameters and the track list from there. The older
+> `docs/experiment_protocol.md` and `docs/metadata_template.md` are generic
+> templates / examples and are **not** the formal plan.
+
+## 1. Research purpose
+
+Study how laser-cladding process parameters **and an applied magnetic field**
+shape the **temperature field** of single-track CoCrNi deposits. The current
+phase quantifies, per single track, the whole-track thermal-field response, then
+aggregates the three repeats of each process condition to describe the
+condition-level thermal response and (later) a response-surface / magnetic-field
+effect analysis.
+
+A later phase will join these thermal-field features with cross-section quality
+labels for forming-quality prediction — see §7.
+
+## 2. Experimental factors and levels
+
+Three-factor, three-level **Box–Behnken Design (BBD)**. Coded levels -1 / 0 / +1:
+
+| Factor | Unit | Low (-1) | Center (0) | High (+1) |
+|--------|------|---------:|-----------:|----------:|
+| Laser power      | W      | 300 | 450 | 600 |
+| Scan speed       | mm/min | 400 | 600 | 800 |
+| Magnetic field   | mT     |   0 |  60 | 120 |
+
+> Scan speed is in **mm/min** — never mm/s.
+> A track is **with magnetic field** iff `magnetic_field_mT > 0`, otherwise
+> **without magnetic field**.
+
+## 3. Fixed process parameters
+
+| Parameter | Value |
+|-----------|------:|
+| Powder feed (`powder_feed_g_min`) | 40 g/min |
+| Travel distance (`travel_distance_mm`) | 30 mm |
+| Repeated tracks per condition | 3 (T1, T2, T3) |
+
+## 4. The 19 conditions
+
+19 process conditions × 3 repeated single tracks = **57 independent thermal-field
+samples**.
+
+| condition_id | design_role | laser_power_W | scan_speed_mm_min | magnetic_field_mT | powder_feed_g_min | travel_distance_mm |
+|---|---|---:|---:|---:|---:|---:|
+| C1  | control_no_field          | 450 | 600 |   0 | 40 | 30 |
+| C2  | control_high_field        | 450 | 600 | 120 | 40 | 30 |
+| R1  | box_behnken_edge          | 300 | 400 |  60 | 40 | 30 |
+| R2  | box_behnken_edge          | 600 | 400 |  60 | 40 | 30 |
+| R3  | box_behnken_edge          | 300 | 800 |  60 | 40 | 30 |
+| R4  | box_behnken_edge          | 600 | 800 |  60 | 40 | 30 |
+| R5  | box_behnken_edge          | 300 | 600 |   0 | 40 | 30 |
+| R6  | box_behnken_edge          | 600 | 600 |   0 | 40 | 30 |
+| R7  | box_behnken_edge          | 300 | 600 | 120 | 40 | 30 |
+| R8  | box_behnken_edge          | 600 | 600 | 120 | 40 | 30 |
+| R9  | box_behnken_edge          | 450 | 400 |   0 | 40 | 30 |
+| R10 | box_behnken_edge          | 450 | 800 |   0 | 40 | 30 |
+| R11 | box_behnken_edge          | 450 | 400 | 120 | 40 | 30 |
+| R12 | box_behnken_edge          | 450 | 800 | 120 | 40 | 30 |
+| R13 | box_behnken_center_repeat | 450 | 600 |  60 | 40 | 30 |
+| R14 | box_behnken_center_repeat | 450 | 600 |  60 | 40 | 30 |
+| R15 | box_behnken_center_repeat | 450 | 600 |  60 | 40 | 30 |
+| R16 | box_behnken_center_repeat | 450 | 600 |  60 | 40 | 30 |
+| R17 | box_behnken_center_repeat | 450 | 600 |  60 | 40 | 30 |
+
+`R13`–`R17` are five replicates of the BBD center point (used to estimate pure
+error / repeatability). `C1` and `C2` are reference runs at the center power/speed
+with the field off vs. at the high level.
+
+## 5. Repeated tracks (T1 / T2 / T3)
+
+Each condition contains three single tracks **T1, T2, T3**. They are **three
+repeated experiments under the same process condition**, i.e. three independent
+realizations — **not** one long track split into three.
+
+**Hard rule — no concatenation.** The raw frames of T1, T2, T3 must **never** be
+joined end-to-end. Each single track is parsed independently, has its
+thermal-field features extracted independently, and only afterwards are the three
+repeats aggregated per condition (mean / std / coefficient of variation).
+
+`track_order`: T1 = 1, T2 = 2, T3 = 3. If real acquisition-order evidence
+contradicts this, **stop and report** — do not silently change it.
+
+## 6. Current phase: whole-track thermal-field analysis only
+
+The current research line is:
+
+```
+process parameters
+  -> 57 independent single-track temperature fields
+  -> per-track thermal-field features
+  -> per-condition aggregation over T1/T2/T3 (mean, std, CV)
+  -> 19 condition-level thermal responses
+  -> response surface & magnetic-field effect analysis
+```
+
+The current phase does **not**: slice tracks, measure cross-sections, build
+section quality labels, run quality classification, or run scripts 13–16.
+
+### Data units
+
+- **Track level (processing unit):** one single track = one temperature-field
+  sample. All raw temperature is float32 **degrees Celsius** (`raw/10`), shape
+  **N × H × W** (N frames, H=512, W=640). Per-track features are extracted from
+  this whole-track sequence.
+- **Condition level (statistical aggregation unit):** one of the 19 conditions =
+  aggregate of its T1/T2/T3 per-track features, summarized by **mean, standard
+  deviation, and coefficient of variation (CV = std / mean)**.
+
+### Subsequent data-processing order
+
+1. Read raw `.xtherm` per track from the canonical data source
+   (`configs/experiments.yaml` → `raw_data_root`).
+2. Convert raw `.xtherm` → float32 Celsius matrices (N × H × W), per track. *(not run yet)*
+3. ROI crop per track. *(not run yet)*
+4. Extract whole-track thermal-field features, **one row per track** (57 rows). *(not run yet)*
+5. Aggregate per condition over T1/T2/T3 → mean / std / CV (19 rows). *(not run yet)*
+6. Response-surface and with-/without-magnetic-field comparison. *(not run yet)*
+
+> Steps 2–6 are **not executed** in this task. This task only records the formal
+> plan, writes the machine-readable config, and builds the local metadata map.
+
+## 7. Later phase (not now)
+
+Once cross-section quality labels exist:
+
+```
+thermal-field features + cross-section quality labels
+  -> forming-quality prediction
+```
+
+Scripts 13–16 (section-level ML) belong to this later phase. They are **kept** in
+the repository but are **currently not run** (see `README.md` and `CLAUDE.md`).
+
+## 8. Data source & metadata
+
+- Canonical raw data (formal source): `D:/WenDuChang-data-repo/raw_xtherm`
+  (private Git-LFS data repository).
+- Do **not** use `D:/WenDuChang/data/raw_xtherm` as the formal batch source, and
+  exclude the early-test copy `D:/WenDuChang/data/raw_xtherm/dataset` entirely.
+- The per-track metadata map is generated locally to
+  `data/metadata/experiment_master.csv` (57 rows) by
+  `scripts/00_build_experiment_master.py`. That CSV is **local only** and is not
+  committed (the repo `.gitignore` excludes `*.csv`).
+
+### Metadata still pending (intentionally blank)
+
+These fields are left empty until confirmed by real acquisition records — they
+are **not** guessed:
+
+- `frame_rate_fps` — `session.xml` records `N/A`; config holds contradictory
+  values (52 vs 1000); the ~52 fps estimated from one earlier group must not be
+  applied to all 57 tracks. To be confirmed from acquisition settings / video
+  duration / temperature-series analysis.
+- `effective_start_frame`, `effective_end_frame` — the effective cladding window;
+  to be auto-detected later (peak temperature / high-temperature area / time
+  curve) and human-reviewed.
+- `plate_id` — substrate plate id; not recorded in the data, must not be guessed.

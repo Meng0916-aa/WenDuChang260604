@@ -1,0 +1,217 @@
+# ============================================================
+# Magnetic-Field-Assisted CoCrNi Laser Cladding
+# FORMAL EXPERIMENT DESIGN — single source of truth
+#
+# This file is the authoritative, machine-readable record of the real
+# 19-condition experiment. All downstream programs MUST read process
+# parameters and the track list from here (not from docs or default.yaml
+# examples). 19 conditions x 3 repeated tracks (T1/T2/T3) = 57 independent
+# single-track thermal-field samples.
+# ============================================================
+
+experiment_design:
+  name: "Magnetic-field-assisted CoCrNi laser cladding (Box-Behnken Design)"
+  design_type: "Box-Behnken Design (BBD), 3 factors x 3 levels"
+  # Three controllable factors, coded levels -1 / 0 / +1.
+  factors:
+    laser_power_W:
+      unit: "W"
+      low: 300       # -1
+      center: 450    #  0
+      high: 600      # +1
+    scan_speed_mm_min:
+      unit: "mm/min"   # NOTE: mm/min, never mm/s
+      low: 400       # -1
+      center: 600    #  0
+      high: 800      # +1
+    magnetic_field_mT:
+      unit: "mT"
+      low: 0         # -1  (no field)
+      center: 60     #  0
+      high: 120      # +1
+  # Held constant across every condition and track.
+  fixed_parameters:
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks_per_condition: 3
+
+# --- Conventions (consumed by the experiment_master generator) ---
+# Canonical raw-data source. FORMAL batch processing reads ONLY from here.
+# Do NOT use data/raw_xtherm as the formal source, and the early-test copy
+# data/raw_xtherm/dataset is excluded entirely.
+raw_data_root: "D:/WenDuChang-data-repo/raw_xtherm"
+
+# sample_id = condition_id + "_" + track_id  (e.g. C1_T1, R17_T3)
+sample_id_rule: "{condition_id}_{track_id}"
+
+# Repeat ordering. If real acquisition-order evidence contradicts this,
+# STOP and report — do not silently change it.
+track_order_map:
+  T1: 1
+  T2: 2
+  T3: 3
+
+# A track has an applied magnetic field iff magnetic_field_mT > 0.
+magnetic_field_grouping:
+  with_magnetic_field: "magnetic_field_mT > 0"
+  without_magnetic_field: "magnetic_field_mT == 0"
+
+# --- The 19 conditions ---
+# design_role values:
+#   control_no_field          : reference run, field off (C1)
+#   control_high_field        : reference run, field at high level (C2)
+#   box_behnken_edge          : BBD edge/face point
+#   box_behnken_center_repeat : BBD center-point replicate (R13-R17)
+conditions:
+  - condition_id: C1
+    design_role: control_no_field
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 0
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: C2
+    design_role: control_high_field
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 120
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R1
+    design_role: box_behnken_edge
+    laser_power_W: 300
+    scan_speed_mm_min: 400
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R2
+    design_role: box_behnken_edge
+    laser_power_W: 600
+    scan_speed_mm_min: 400
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R3
+    design_role: box_behnken_edge
+    laser_power_W: 300
+    scan_speed_mm_min: 800
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R4
+    design_role: box_behnken_edge
+    laser_power_W: 600
+    scan_speed_mm_min: 800
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R5
+    design_role: box_behnken_edge
+    laser_power_W: 300
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 0
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R6
+    design_role: box_behnken_edge
+    laser_power_W: 600
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 0
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R7
+    design_role: box_behnken_edge
+    laser_power_W: 300
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 120
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R8
+    design_role: box_behnken_edge
+    laser_power_W: 600
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 120
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R9
+    design_role: box_behnken_edge
+    laser_power_W: 450
+    scan_speed_mm_min: 400
+    magnetic_field_mT: 0
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R10
+    design_role: box_behnken_edge
+    laser_power_W: 450
+    scan_speed_mm_min: 800
+    magnetic_field_mT: 0
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R11
+    design_role: box_behnken_edge
+    laser_power_W: 450
+    scan_speed_mm_min: 400
+    magnetic_field_mT: 120
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R12
+    design_role: box_behnken_edge
+    laser_power_W: 450
+    scan_speed_mm_min: 800
+    magnetic_field_mT: 120
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R13
+    design_role: box_behnken_center_repeat
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R14
+    design_role: box_behnken_center_repeat
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R15
+    design_role: box_behnken_center_repeat
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R16
+    design_role: box_behnken_center_repeat
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
+  - condition_id: R17
+    design_role: box_behnken_center_repeat
+    laser_power_W: 450
+    scan_speed_mm_min: 600
+    magnetic_field_mT: 60
+    powder_feed_g_min: 40
+    travel_distance_mm: 30
+    tracks: [T1, T2, T3]
