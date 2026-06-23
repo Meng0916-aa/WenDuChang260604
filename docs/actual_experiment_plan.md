@@ -147,6 +147,19 @@ the repository but are **currently not run** (see `README.md` and `CLAUDE.md`).
   `scripts/00_build_experiment_master.py`. That CSV is **local only** and is not
   committed (the repo `.gitignore` excludes `*.csv`).
 
+### Physical calibration (CONFIRMED)
+
+Formal spatial scale is **150.2 px = 5 mm → `pixel_size_x_mm = pixel_size_y_mm =
+0.0332889481` mm/px**, `pixel_area_mm2 = 0.0011081541` mm² (user-confirmed,
+`calibration_id: formal_150p2px_5mm`). Source: `configs/physical_calibration.yaml`
+(loader `src/config/physical_calibration.py`); every track in
+`experiment_master.csv` carries these. X and Y share one scale
+(`isotropic_scaling_assumed: true`; anisotropy not yet verified). The legacy pilot
+`0.03128` mm/px (95.9 px = 3 mm) is **not** used for formal processing. The
+19-condition process parameters are user-confirmed
+(`process_parameter_status: confirmed`). See
+`docs/physical_calibration_and_process_parameters_to_confirm.md`.
+
 ### Metadata still pending (intentionally blank)
 
 These fields are left empty until confirmed by real acquisition records — they
@@ -154,8 +167,10 @@ are **not** guessed:
 
 - `frame_rate_fps` — `session.xml` records `N/A`; config holds contradictory
   values (52 vs 1000); the ~52 fps estimated from one earlier group must not be
-  applied to all 57 tracks. To be confirmed from acquisition settings / video
-  duration / temperature-series analysis.
+  applied to all 57 tracks. While unconfirmed, **all time axes use the frame
+  index, never seconds**.
+- `scan_axis`, `scan_direction` — needed for directional gradients, signed
+  center offset, and left/right asymmetry; not yet provided.
 - `effective_start_frame`, `effective_end_frame` — the effective cladding window;
   to be auto-detected later (peak temperature / high-temperature area / time
   curve) and human-reviewed.

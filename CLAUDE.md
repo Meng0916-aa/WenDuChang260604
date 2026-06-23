@@ -92,8 +92,25 @@ Then run Python scripts in the active pytorch environment.
 - Scan speed is always **mm/min** (never mm/s). `sample_id = condition_id + "_" + track_id`.
   The per-track map is built locally to `data/metadata/experiment_master.csv` by
   `scripts/00_build_experiment_master.py` (LOCAL ONLY; `*.csv` is git-ignored). Unknown
-  fields (`frame_rate_fps`, `effective_start_frame`, `effective_end_frame`, `plate_id`)
-  are left BLANK, never guessed.
+  fields (`frame_rate_fps`, `effective_start_frame`, `effective_end_frame`, `scan_axis`,
+  `scan_direction`, `plate_id`) are left BLANK, never guessed.
+
+## Physical Calibration (formal — single source of truth)
+- Formal spatial scale is **150.2 px = 5 mm → `pixel_size_x_mm = pixel_size_y_mm =
+  0.0332889481` mm/px**, `pixel_area_mm2 = 0.0011081541` mm². User-confirmed
+  (`calibration_id: formal_150p2px_5mm`). Source: `configs/physical_calibration.yaml`,
+  loaded/validated via `src/config/physical_calibration.py`. Formal ROI/feature code
+  MUST read the pixel size from there — NEVER from `configs/default.yaml`'s legacy
+  `pixel_size_mm: 0.03128` (95.9 px = 3 mm), which is `legacy_pilot_only` and disabled
+  for formal processing.
+- X and Y currently share one scale (`isotropic_scaling_assumed: true`); X/Y anisotropy is
+  NOT yet verified. Do not run formal processing with two active pixel sizes at once.
+- `frame_rate_fps` is **unconfirmed** (historical 52 vs 1000 conflict) → kept null. All time
+  axes use the **frame index**, never seconds. `require_frame_rate()` raises for time-domain
+  features (cooling rate / dwell / AUC / scan-distance-per-frame) until a real fps is given.
+- Temperature: saturated/sentinel pixels at the uint16 ceiling **6553.5 °C** are masked for
+  analysis only; raw `.xtherm` and converted matrices are never modified. Prefer the robust
+  **P99.9** peak over raw max.
 
 ## GitHub Sync Rule
 Repo: https://github.com/Meng0916-aa/WenDuChang260604 (already exists; remote branch `main`).

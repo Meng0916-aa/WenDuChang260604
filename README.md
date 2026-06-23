@@ -33,6 +33,27 @@ and assess **cladding quality** under **with / without magnetic field** conditio
 > modeling. TCN / Transformer / LSTM-TCN remain guarded skeletons (`NotImplementedError`)
 > and are not implemented. See `docs/model_design.md`.
 
+## Physical calibration & current feature scope
+
+**Spatial calibration (formal, user-confirmed): 150.2 px = 5 mm → `0.0332889481` mm/px**
+(`pixel_area_mm2 = 0.0011081541` mm²). Single source of truth:
+`configs/physical_calibration.yaml`, loaded/validated by
+`src/config/physical_calibration.py`. The legacy pilot value `0.03128` mm/px (95.9 px = 3 mm)
+is **not** used for formal processing; X and Y share one scale (X/Y anisotropy not yet
+verified). `frame_rate_fps` is unconfirmed (historical 52 vs 1000 conflict) → all time axes
+use the **frame index**, never seconds. Details:
+`docs/physical_calibration_and_process_parameters_to_confirm.md`.
+
+**Computable now** (spatial/temperature, frame-index): temperature statistics (°C); robust
+peak **P99.9** (°C); high-temperature pixel count; high-temperature **area (mm²)**; 700 °C
+isotherm **width (mm)**; hot-zone bounding-box size (mm); **unsigned** spatial gradient
+magnitude (°C/mm); **unsigned** center-offset distance (mm).
+
+**Not computable yet**: scan-direction & transverse gradients, signed center offset,
+left/right area asymmetry (need `scan_axis`/`scan_direction`); cooling rate (°C/s), dwell
+time (s), temperature AUC (°C·s), scan distance per frame (mm), scan duration (s) (need a
+confirmed `frame_rate_fps`).
+
 ## Environment
 
 This project runs PyTorch **only** in the conda environment named `pytorch`

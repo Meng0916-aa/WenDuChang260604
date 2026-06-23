@@ -35,6 +35,13 @@ experiment_design:
     travel_distance_mm: 30
     tracks_per_condition: 3
 
+# Provenance of the 19-condition process parameters. User-confirmed response-
+# surface (Box-Behnken) plan; applies to all 19 conditions (and all 57 tracks).
+# Do NOT re-infer or modify these from frame counts.
+process_parameters:
+  source: user_confirmed_response_surface_plan
+  status: confirmed
+
 # --- Conventions (consumed by the experiment_master generator) ---
 # Canonical raw-data source. FORMAL batch processing reads ONLY from here.
 # Do NOT use data/raw_xtherm as the formal source, and the early-test copy

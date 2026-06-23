@@ -6,6 +6,14 @@
 # Global random seed (reproducibility — see src/utils/seed.py)
 seed: 42
 
+# --- Physical calibration (formal spatial scale) ---
+# The formal spatial + temperature calibration lives in its own file. Formal
+# ROI / feature programs MUST read the pixel size from there
+# (src/config/physical_calibration.py), NOT from the legacy `pixel_size_mm`
+# under thermal_field_features below.
+calibration:
+  config_file: configs/physical_calibration.yaml
+
 # --- Paths ---
 paths:
   raw_xtherm: "data/raw_xtherm"
@@ -222,7 +230,10 @@ temporal_analysis:
 thermal_field_features:
   high_temp_threshold: 800.0    # Celsius; melt-pool / high-temperature zone
   haz_threshold: 700.0          # Celsius; heat-affected-zone boundary
-  pixel_size_mm: 0.03128           # mm per pixel; null -> areas/widths in pixels
+  pixel_size_mm: 0.03128           # LEGACY pilot value (95.9 px = 3 mm). NOT the formal
+                                   # scale. Formal processing uses configs/physical_calibration.yaml
+                                   # (150.2 px = 5 mm -> 0.0332889481 mm/px). Kept only so the
+                                   # existing feature/section tests still resolve a value.
   frame_rate_fps: 52          # for cooling-rate / dwell-time (seconds)
   center_threshold: 800.0       # threshold for the temperature-weighted center
   smooth_window: 5              # moving-average window for rate features

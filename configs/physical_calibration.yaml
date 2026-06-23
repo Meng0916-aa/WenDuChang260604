@@ -1,0 +1,68 @@
+# ============================================================
+# Formal PHYSICAL CALIBRATION for the 57-track experimental dataset.
+#
+# Single source of truth for spatial scale + temperature binary calibration.
+# Formal feature/ROI programs MUST read the spatial scale from here (not from
+# the legacy pixel_size_mm in configs/default.yaml). User-confirmed.
+# ============================================================
+
+schema_version: 1
+calibration_id: formal_150p2px_5mm
+
+spatial_calibration:
+  calibration_status: confirmed
+  calibration_source: user_confirmed
+  calibration_reference_length_mm: 5.0
+  calibration_reference_pixels: 150.2
+  calibration_reference_axis: unspecified
+  # 5 / 150.2 = 0.033288948069241 mm/pixel
+  pixel_size_x_mm: 0.0332889481
+  pixel_size_y_mm: 0.0332889481
+  # 0.0332889481^2 = 0.001108154063556625 mm^2/pixel
+  pixel_area_mm2: 0.0011081541
+  isotropic_scaling_assumed: true
+  x_y_anisotropy_verified: false
+  uncertainty_mm_per_pixel: null
+  notes: >
+    Formal scalar spatial calibration for the 57-track experimental dataset.
+    X and Y currently use the same scale. Separate X/Y calibration has not
+    yet been independently verified.
+
+image_geometry:
+  image_height_px: 512
+  image_width_px: 640
+  scan_axis: null
+  scan_direction: null
+  transverse_axis: null
+  rotation_deg: null
+  flip_horizontal: null
+  flip_vertical: null
+
+temperature_calibration:
+  calibration_status: binary_format_verified
+  header_bytes: 56
+  raw_dtype: uint16
+  byte_order: little
+  scale_C_per_count: 0.1
+  offset_C: 0.0
+  saturation_value_C: 6553.5
+  hard_saturation_threshold_C: 6500.0
+  robust_peak_quantile: 0.999
+  saturation_handling: mask_for_analysis_do_not_modify_raw_or_matrix
+  invalid_value_policy: mask_flag_and_report
+  emissivity: null
+  transmission: null
+  camera_temperature_range_C: null
+
+acquisition:
+  frame_rate_fps: null
+  exposure_time_us: null
+  working_distance_mm: null
+  lens_model: null
+
+legacy_calibration:
+  enabled_for_formal_processing: false
+  calibration_reference_length_mm: 3.0
+  calibration_reference_pixels: 95.9
+  approximate_pixel_size_mm: 0.03128
+  status: legacy_pilot_only
