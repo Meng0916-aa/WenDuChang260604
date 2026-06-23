@@ -85,6 +85,15 @@ Then run Python scripts in the active pytorch environment.
 - **Current phase = whole-track thermal-field analysis only.** Do NOT slice tracks, measure
   cross-sections, build section quality labels, run quality classification, or run scripts
   **13–16**. Those scripts are kept but currently NOT run (later, section-quality phase).
+- **Unified ROI strategy = EVALUATED (read-only), not yet applied.** `scripts/03a_evaluate_roi_strategy.py`
+  (with `src/processing/hot_region_mask.py` + `src/roi/roi_evaluation.py`) evaluates ROI/window
+  candidates over the 57 tracks using `frames[1:]`; it writes tables + a JSON + QC figures under
+  `results/` and writes NO ROI `.npy` and never modifies raw matrices. Findings: the legacy ROI
+  (top=200,left=0,h=300,w=600) is NOT usable (700-envelope min coverage 99.71%, clips `R2_T3`); the
+  recommended fixed global ROI is **(top=175,left=86,bottom=495,right=334) = 320×248 px** (100%/100%
+  coverage); recommended strategy is **`global_roi_plus_tracking_window`** (window 192×208 px). Do
+  NOT generate the formal ROI matrices until the user confirms a strategy. Details:
+  `docs/roi_strategy_evaluation.md`.
 - **Canonical raw-data source** for all formal batch processing is the independent data repo
   **`D:/WenDuChang-data-repo/raw_xtherm`** (`raw_data_root` in `configs/experiments.yaml`).
   Do NOT use `data/raw_xtherm` as the formal source; exclude the early-test copy

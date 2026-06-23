@@ -60,6 +60,15 @@ distance per frame (mm), scan duration (s).
 **Still required before formal feature extraction** (not run here): unified ROI confirmation,
 invalid-pixel masking, valid-range masking, final feature-definition review.
 
+**Unified ROI strategy — evaluated (read-only).** `scripts/03a_evaluate_roi_strategy.py` locates
+the main melt-pool hot region across all 57 tracks (`frames[1:]`, 700 °C envelope / 800 °C core,
+above-range & hard-saturation handled spatially without touching the raw data) and compares three
+analysis options. The legacy ROI (top=200,left=0,h=300,w=600) is **not** usable (700-envelope min
+coverage 99.71%); the recommended fixed global ROI is **(175,86)→(495,334) = 320×248 px** (100% core
+& envelope coverage), and the recommended strategy is **global ROI + a 192×208 px moving tracking
+window**. It writes tables + JSON + 12 QC figures under `results/` and **no ROI matrices**; formal
+ROI cropping waits for user confirmation. See `docs/roi_strategy_evaluation.md`.
+
 ## Environment
 
 This project runs PyTorch **only** in the conda environment named `pytorch`
@@ -244,6 +253,7 @@ the scripts give clear guidance instead of fabricating data when they are absent
 | `02b_convert_xtherm_binary_to_npy.py` | `data/raw_xtherm/dataset/*.xtherm` (binary) | `data/exported/npy/dataset.npy` + `dataset_meta.json` (float32 °C) |
 | `02_convert_exported_to_npy.py` | `data/exported/{npy,csv,h5}` | `data/processed/matrix/*.npy` (float32 °C) |
 | `03_extract_roi.py` | `data/processed/matrix` | `data/processed/roi/*.npy` |
+| `03a_evaluate_roi_strategy.py` | `data/processed/matrix` (read-only) | ROI-strategy tables + JSON + QC figures under `results/` (NO ROI `.npy`) |
 | `04_extract_thermal_cycle.py` | `data/processed/roi` | `data/processed/thermal_cycle/*.csv` |
 | `05_build_window_dataset.py` | thermal-cycle CSVs (or SIMULATED) | `data/processed/samples/window_samples.npz` |
 | `06_train_model.py` | samples `.npz` | `best_lstm.pt`, `normalizer.npz`, `training_log.csv`, `used_config.yaml` |
