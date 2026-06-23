@@ -37,70 +37,16 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))
 
 from utils.config import load_config
 
-
-class XthermSizeError(ValueError):
-    """A .xtherm file does not match header_bytes + width*height*itemsize."""
-
-
-def build_numpy_dtype(dtype_name, endian):
-    """Map config (dtype, endian) to a concrete numpy dtype, e.g. '<u2'."""
-    if endian not in ("little", "big"):
-        raise ValueError(f"xtherm_binary.endian must be 'little' or 'big', "
-                         f"got {endian!r}")
-    prefix = "<" if endian == "little" else ">"
-    return np.dtype(dtype_name).newbyteorder(prefix)
-
-
-def list_xtherm_files(input_dir):
-    """Recursively list .xtherm files under input_dir, sorted by filename."""
-    if not os.path.isdir(input_dir):
-        raise FileNotFoundError(f"xtherm_binary.input_dir not found: {input_dir}")
-    found = []
-    for pat in ("*.xtherm", "*.XTHERM"):
-        found.extend(glob.glob(os.path.join(input_dir, "**", pat),
-                               recursive=True))
-    return sorted(set(found), key=lambda p: os.path.relpath(p, input_dir))
-
-
-def read_xtherm_frame(path, width, height, header_bytes, np_dtype,
-                      scale_factor):
-    """Read ONE .xtherm file -> (H, W) float32 Celsius. Never writes."""
-    expected_size = header_bytes + width * height * np_dtype.itemsize
-    actual_size = os.path.getsize(path)
-    if actual_size != expected_size:
-        raise XthermSizeError(
-            f"size mismatch for '{os.path.basename(path)}': "
-            f"expected {expected_size} bytes "
-            f"(header {header_bytes} + {width}x{height}x{np_dtype.itemsize}), "
-            f"got {actual_size} bytes ({path})")
-    raw = np.fromfile(path, dtype=np_dtype, count=width * height,
-                      offset=header_bytes)
-    frame = raw.reshape(height, width).astype(np.float32)
-    return frame * np.float32(scale_factor)
-
-
-def convert_xtherm_dir(xb):
-    """Convert all .xtherm files described by config section `xb`.
-
-    Returns (data, files): data is N x H x W float32 Celsius, files is the
-    sorted list of source paths.
-    """
-    width = int(xb["width"])
-    height = int(xb["height"])
-    header_bytes = int(xb["header_bytes"])
-    scale_factor = float(xb["scale_factor"])
-    np_dtype = build_numpy_dtype(xb["dtype"], xb["endian"])
-
-    files = list_xtherm_files(xb["input_dir"])
-    if not files:
-        raise FileNotFoundError(
-            f"no .xtherm files found under {xb['input_dir']}")
-
-    data = np.empty((len(files), height, width), dtype=np.float32)
-    for i, path in enumerate(files):
-        data[i] = read_xtherm_frame(path, width, height, header_bytes,
-                                    np_dtype, scale_factor)
-    return data, files
+# Single source of truth for the verified .xtherm parse algorithm. These names
+# are re-exported so existing callers/tests of this script keep working while the
+# actual implementation lives in one place (shared with scripts/02c).
+from conversion.xtherm_binary import (  # noqa: F401  (re-export)
+    XthermSizeError,
+    build_numpy_dtype,
+    list_xtherm_files,
+    read_xtherm_frame,
+    convert_xtherm_dir,
+)
 
 
 def main():
