@@ -33,9 +33,28 @@ __pycache__/
 .venv/
 venv/
 
+# Tabular data is ignored by default so real experiment data / results never
+# leak. Small PUBLIC fixtures, templates and examples are re-included below.
 *.csv
 *.xlsx
 *.xls
+
+# Re-include public, small, version-controlled tabular files. data/ and results/
+# stay fully ignored (their directory rules above win), so this only exposes
+# tests/fixtures, templates and examples.
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.xlsx
+!tests/fixtures/**/*.xls
+!templates/**/*.csv
+!templates/**/*.xlsx
+!templates/**/*.xls
+!examples/**/*.csv
+!examples/**/*.xlsx
+!examples/**/*.xls
+
+# Machine-specific local config (absolute paths) — never commit.
+configs/local.yaml
+
 .claude/
 scripts/02_convert_xtherm_to_npy.py
 scripts/05_train_model.py

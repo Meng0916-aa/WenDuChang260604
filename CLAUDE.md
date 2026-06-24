@@ -94,10 +94,29 @@ Then run Python scripts in the active pytorch environment.
   coverage); recommended strategy is **`global_roi_plus_tracking_window`** (window 192×208 px). Do
   NOT generate the formal ROI matrices until the user confirms a strategy. Details:
   `docs/roi_strategy_evaluation.md`.
-- **Canonical raw-data source** for all formal batch processing is the independent data repo
-  **`D:/WenDuChang-data-repo/raw_xtherm`** (`raw_data_root` in `configs/experiments.yaml`).
-  Do NOT use `data/raw_xtherm` as the formal source; exclude the early-test copy
-  `data/raw_xtherm/dataset`.
+- **Formal pipeline entry = `configs/formal_pipeline.yaml`** (active; references
+  `configs/experiments.yaml` + `configs/physical_calibration.yaml`). **`configs/default.yaml` is
+  LEGACY** (`config_status.role: legacy_pilot`, `formal_processing_enabled: false`): its ROI is
+  disabled (`enabled: false`, `legacy_not_approved`), its `dataset` entry and `pixel_size_mm:
+  0.03128` are legacy-only. Formal code MUST refuse it — `src/config/formal_config.py`
+  (`assert_not_legacy_default` / `reject_legacy_roi` / `assert_no_legacy_dataset_path` /
+  `assert_pixel_size_from_calibration`). Formal pixel size comes ONLY from
+  `physical_calibration.yaml`. README splits the one formal workflow from a fenced
+  "Legacy and future-stage workflows" section. See `docs/formal_pipeline.md`.
+- **Canonical raw-data source** is the independent data repo (the early-test copy
+  `data/raw_xtherm/dataset` is excluded). The path is **NOT** hard-coded in the public repo:
+  resolve it via `src/config/path_resolution.py` — priority CLI `--raw-data-root` > env
+  `WENDUCHANG_DATA_ROOT` > `configs/local.yaml` (git-ignored; copy `configs/local.example.yaml`)
+  > `configs/experiments.yaml` (`raw_data_root: null`) > clear error. Do NOT commit
+  `configs/local.yaml` or a machine-absolute path in any committed config.
+- **PyTorch is NOT in `requirements.txt`** (it would overwrite the conda `pytorch` CUDA build).
+  Install/verify torch separately; the formal 57-track pipeline does not need it. See
+  `docs/environment_setup.md`.
+- **Shared temperature-mask primitives live in `src/processing/temperature_mask.py`** (the single
+  canonical `build_threshold_mask` etc.). `processing` must NOT import `features`; `features`
+  imports `processing` (one direction only, no cycle). `hot_region_mask` composes
+  `temperature_mask`; `features.thermal_field_features.compute_high_temperature_mask` is a thin
+  wrapper delegating to it.
 - Scan speed is always **mm/min** (never mm/s). `sample_id = condition_id + "_" + track_id`.
   The per-track map is built locally to `data/metadata/experiment_master.csv` by
   `scripts/00_build_experiment_master.py` (LOCAL ONLY; `*.csv` is git-ignored). As of the

@@ -1,0 +1,15 @@
+# ============================================================
+# LOCAL machine configuration (EXAMPLE — copy to configs/local.yaml)
+#
+# configs/local.yaml is git-ignored and holds machine-specific absolute paths so
+# they never enter the public repository. Copy this file to configs/local.yaml
+# and edit the path for your machine. The formal pipeline resolves the raw-data
+# root by priority (CLI > WENDUCHANG_DATA_ROOT env > configs/local.yaml >
+# configs/experiments.yaml); see src/config/path_resolution.py.
+# ============================================================
+
+paths:
+  # Absolute path to the private raw-.xtherm data repository on THIS machine.
+  # Example (Windows): D:/WenDuChang-data-repo/raw_xtherm
+  # Example (POSIX):   /mnt/data/WenDuChang-data-repo/raw_xtherm
+  raw_data_root: D:/WenDuChang-data-repo/raw_xtherm

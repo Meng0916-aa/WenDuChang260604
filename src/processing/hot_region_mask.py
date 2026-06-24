@@ -24,31 +24,23 @@ Spatial-localization rule (geometry only, see docs):
   produces a hole. The fill acts on the MASK only — the temperature matrix is
   never altered.
 
-Pure NumPy + scipy.ndimage; no torch / matplotlib, so every function is
-unit-testable in isolation.
+Pure NumPy + scipy.ndimage; no torch / matplotlib and NO dependency on the
+``features`` package — the shared primitives live in
+``src/processing/temperature_mask.py`` (the single canonical home), so this
+module composes them without any circular dependency.
 """
 
 import numpy as np
-from scipy import ndimage
 
-from features.thermal_field_features import compute_high_temperature_mask
+from processing.temperature_mask import (
+    DEFAULT_VALID_MIN_C, DEFAULT_VALID_MAX_C, DEFAULT_HARD_SAT_C,
+    DEFAULT_MIN_COMPONENT_AREA_PX,
+    build_threshold_mask, classify_temperature_state, label_components,
+    remove_small_components, retain_main_component, handle_connected_above_range,
+)
 
-# Formal defaults (configs/physical_calibration.yaml -> temperature_calibration).
-DEFAULT_VALID_MIN_C = 300.0
-DEFAULT_VALID_MAX_C = 1800.0
-DEFAULT_HARD_SAT_C = 6500.0
-DEFAULT_MIN_COMPONENT_AREA_PX = 9
-
-_STRUCT_8 = ndimage.generate_binary_structure(2, 2)   # 8-connectivity
-_STRUCT_4 = ndimage.generate_binary_structure(2, 1)   # 4-connectivity
-
-
-def _struct(connectivity):
-    if int(connectivity) == 8:
-        return _STRUCT_8
-    if int(connectivity) == 4:
-        return _STRUCT_4
-    raise ValueError(f"connectivity must be 4 or 8, got {connectivity!r}")
+# Back-compat alias (older callers/tests import the plural name from here).
+classify_temperature_states = classify_temperature_state
 
 
 def _check_2d(frame):
@@ -59,54 +51,7 @@ def _check_2d(frame):
 
 
 # ---------------------------------------------------------------------------
-# Temperature-state classification
-# ---------------------------------------------------------------------------
-
-def classify_temperature_states(frame, valid_min=DEFAULT_VALID_MIN_C,
-                                valid_max=DEFAULT_VALID_MAX_C,
-                                hard_sat=DEFAULT_HARD_SAT_C):
-    """Classify every pixel into the four mutually-exclusive states.
-
-    Returns a dict of bool (H, W) masks: ``below_range``, ``valid``,
-    ``above_range``, ``hard_saturation``. The raw frame is not modified.
-    """
-    f = _check_2d(frame)
-    vmin, vmax, hard = float(valid_min), float(valid_max), float(hard_sat)
-    below = f < vmin
-    valid = (f >= vmin) & (f <= vmax)
-    above = (f > vmax) & (f < hard)
-    hardm = f >= hard
-    return {"below_range": below, "valid": valid,
-            "above_range": above, "hard_saturation": hardm}
-
-
-# ---------------------------------------------------------------------------
-# Connected components
-# ---------------------------------------------------------------------------
-
-def label_components(mask, connectivity=8):
-    """Label connected components of a boolean mask. Returns (labels, n)."""
-    m = np.asarray(mask, dtype=bool)
-    labels, n = ndimage.label(m, structure=_struct(connectivity))
-    return labels, int(n)
-
-
-def remove_small_components(mask, min_area, connectivity=8):
-    """Drop connected components smaller than ``min_area`` pixels."""
-    m = np.asarray(mask, dtype=bool)
-    labels, n = label_components(m, connectivity)
-    if n == 0:
-        return np.zeros_like(m, dtype=bool)
-    counts = np.bincount(labels.ravel())
-    keep = np.zeros_like(m, dtype=bool)
-    for lab in range(1, n + 1):
-        if counts[lab] >= int(min_area):
-            keep |= (labels == lab)
-    return keep
-
-
-# ---------------------------------------------------------------------------
-# Main hot-region extraction at one threshold
+# Main hot-region extraction at one threshold (composes processing primitives)
 # ---------------------------------------------------------------------------
 
 def extract_main_hot_region(frame, threshold,
@@ -133,52 +78,18 @@ def extract_main_hot_region(frame, threshold,
         hard_saturation pixel counts.
     """
     f = _check_2d(frame)
-    states = classify_temperature_states(f, valid_min, valid_max, hard_sat)
-    above, hardm, valid = states["above_range"], states["hard_saturation"], states["valid"]
+    states = classify_temperature_state(f, valid_min, valid_max, hard_sat)
+    ge = build_threshold_mask(f, threshold)   # T >= threshold (incl. sentinels)
 
-    ge = compute_high_temperature_mask(f, threshold)   # T >= threshold (incl. sentinels)
-    labels, n = label_components(ge, connectivity)
+    main_mask, info = retain_main_component(
+        ge, states["valid"], min_area=min_component_area,
+        connectivity=connectivity, fill_holes=fill_holes)
 
-    main_mask = np.zeros_like(ge, dtype=bool)
-    kept_mask = np.zeros_like(ge, dtype=bool)
-    n_genuine = 0
-    isolated_components = 0
-
-    if n > 0:
-        counts = np.bincount(labels.ravel())
-        valid_ge = valid & ge
-        best_lab, best_area = 0, 0
-        for lab in range(1, n + 1):
-            area = int(counts[lab])
-            if area < int(min_component_area):
-                continue
-            comp = (labels == lab)
-            # Genuine = contains at least one in-range valid pixel at/above
-            # threshold (a real hot region, not a pure-sentinel splatter).
-            if not bool(np.any(valid_ge & comp)):
-                isolated_components += 1
-                continue
-            n_genuine += 1
-            kept_mask |= comp
-            if area > best_area:
-                best_area, best_lab = area, lab
-        if best_lab > 0:
-            main_mask = (labels == best_lab)
-            if fill_holes:
-                main_mask = ndimage.binary_fill_holes(main_mask)
-
-    above_connected = int(np.count_nonzero(above & kept_mask))
-    above_total = int(np.count_nonzero(above))
-    info = {
-        "n_components": int(n),
-        "n_genuine": int(n_genuine),
-        "isolated_component_count": int(isolated_components),
-        "main_area_px": int(np.count_nonzero(main_mask)),
-        "kept_mask": kept_mask,
-        "above_range_connected_count": above_connected,
-        "above_range_isolated_count": int(above_total - above_connected),
-        "hard_saturation_count": int(np.count_nonzero(hardm)),
-    }
+    above_connected, above_isolated = handle_connected_above_range(
+        states["above_range"], info["kept_mask"])
+    info["above_range_connected_count"] = above_connected
+    info["above_range_isolated_count"] = above_isolated
+    info["hard_saturation_count"] = int(np.count_nonzero(states["hard_saturation"]))
     return main_mask, info
 
 

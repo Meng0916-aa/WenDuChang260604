@@ -1,7 +1,22 @@
 # ============================================================
 # Magnetic-Field-Assisted Laser Cladding
-# Default Configuration
+# LEGACY PILOT / HISTORICAL PIPELINE CONFIGURATION
+#
+# This file is NOT the formal 57-track pipeline config. It drives the legacy
+# pilot / historical scripts (dataset.npy import, old ROI, old LSTM, section-ML
+# steps). The formal pipeline entry of record is configs/formal_pipeline.yaml,
+# which references configs/experiments.yaml + configs/physical_calibration.yaml.
+# Formal code refuses to use this file (see src/config/formal_config.py).
 # ============================================================
+
+# Machine-readable status: this config is legacy and NOT approved for the formal
+# 57-track pipeline. src/config/formal_config.assert_not_legacy_default() raises
+# when a formal code path is given this config.
+config_status:
+  role: legacy_pilot
+  formal_processing_enabled: false
+  approved_for_57_track_pipeline: false
+  formal_entry: configs/formal_pipeline.yaml
 
 # Global random seed (reproducibility — see src/utils/seed.py)
 seed: 42
@@ -68,6 +83,12 @@ data:
 #   little-endian uint16; T_celsius = raw / 10. Big-endian reads give ~6500 C
 #   on the first frame -> wrong, do NOT use big-endian.
 xtherm_binary:
+  # LEGACY early-test 'dataset' entry. not_active_for_formal_processing — the
+  # formal pipeline converts per-track via scripts/02c (never this dataset path).
+  # Only the scalar FORMAT fields (width/height/header_bytes/dtype/endian/scale)
+  # are reused by 02c; the dataset input/output paths below are legacy only.
+  formal_processing_enabled: false
+  status: legacy_dataset_not_approved
   input_dir: "data/raw_xtherm/dataset"
   output_npy: "data/exported/npy/dataset.npy"
   output_meta: "data/exported/npy/dataset_meta.json"
@@ -82,11 +103,14 @@ xtherm_binary:
   # edge zeros are usually invalid pixels or background.
   zero_ratio_note_threshold: 0.05
 
-# --- ROI ---
+# --- ROI (LEGACY pilot ROI — DISABLED; not approved for the 57-track pipeline) ---
+# The ROI-strategy evaluation found this legacy ROI clips the 700 C envelope of
+# R2_T3 (min coverage 99.71% < 99.9%). The formal pipeline MUST use the reviewed
+# ROI-strategy configuration, NOT this block. Coordinates kept only for historical
+# reproduction. src/config/formal_config.reject_legacy_roi() raises if used formally.
 roi:
-  enabled: true
-  # Preferred: top/left/height/width (pixels). top=row, left=column.
-  # If height or width is null, the legacy `bounds` field is used instead.
+  enabled: false
+  status: legacy_not_approved
   top: 200
   left: 0
   height: 300        # rows kept: top .. top+height-1
@@ -94,6 +118,10 @@ roi:
   # Legacy fallback: pixel coordinates [x1, y1, x2, y2] (x=col, y=row).
   bounds: [100, 80, 400, 350]
   save_intermediate: true
+  notes: >
+    Historical pilot ROI. The formal 57-track pipeline must use the reviewed ROI
+    strategy configuration (see configs/formal_pipeline.yaml /
+    docs/roi_strategy_evaluation.md), not this block.
 
 # --- Thermal Cycle ---
 thermal_cycle:

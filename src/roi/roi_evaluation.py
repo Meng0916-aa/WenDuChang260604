@@ -224,10 +224,13 @@ def _ceil_to(value, multiple):
 def tracking_window_size(bbox_widths, bbox_heights, percentile=99,
                          edge_safety_margin=10, round_to=8,
                          height=512, width=640):
-    """Fixed window size covering the p-th percentile bbox plus a margin/side.
+    """LEGACY (percentile-of-bbox-size) window sizing — kept for comparison only.
 
-    The same width/height are used for ALL tracks and frames; only the window
-    center moves. Returns (win_height_px, win_width_px), clamped to the frame.
+    This sizes from the p-th percentile bbox dimension plus a per-side margin and
+    centers on the temperature centroid. Because the centroid is NOT the bbox
+    geometric center, an asymmetric main region can still be clipped even when
+    the window is larger than the bbox. Use ``tracking_window_from_extents`` for
+    the formal (100%-coverage) window. Returns (win_height_px, win_width_px).
     """
     pw = size_percentiles(bbox_widths, (percentile,))[int(percentile)]
     ph = size_percentiles(bbox_heights, (percentile,))[int(percentile)]
@@ -236,6 +239,109 @@ def tracking_window_size(bbox_widths, bbox_heights, percentile=99,
     win_w = min(int(win_w), int(width))
     win_h = min(int(win_h), int(height))
     return int(win_h), int(win_w)
+
+
+# ---------------------------------------------------------------------------
+# Extent-based tracking window (formal; guarantees containment about the centroid)
+# ---------------------------------------------------------------------------
+
+def compute_extents(bbox, centroid):
+    """Four-direction extents from the (float) centroid to the bbox edges.
+
+    bbox is half-open (top, left, bottom_excl, right_excl); centroid is (cx, cy)
+    in pixels. Returns a dict with float ``left``/``right``/``top``/``bottom``
+    extents, or None when bbox/centroid is missing. (Per the spec:
+    right = right_excl - cx, bottom = bottom_excl - cy.)
+    """
+    if bbox is None or centroid is None:
+        return None
+    top, left, bottom_excl, right_excl = bbox
+    cx, cy = centroid
+    return {
+        "left": float(cx - left),
+        "right": float(right_excl - cx),
+        "top": float(cy - top),
+        "bottom": float(bottom_excl - cy),
+    }
+
+
+def extent_stats(extents):
+    """Per-direction min / p95 / p99 / max over a list of extent dicts."""
+    out = {}
+    for key in ("left", "right", "top", "bottom"):
+        vals = np.asarray([e[key] for e in extents if e is not None], dtype=np.float64)
+        if vals.size == 0:
+            out[key] = {"min": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0}
+        else:
+            out[key] = {
+                "min": float(vals.min()),
+                "p95": float(np.percentile(vals, 95)),
+                "p99": float(np.percentile(vals, 99)),
+                "max": float(vals.max()),
+            }
+    return out
+
+
+def tracking_window_from_extents(frame_bboxes, frame_centroids, round_to=8,
+                                 height=512, width=640):
+    """Size a fixed window that contains EVERY frame's main bbox about its centroid.
+
+    Placement (``place_window``) centers an even-sized window on round(centroid).
+    For containment with that placement, each half must cover the worst-case
+    placement-aware need: ``round(cx) - left`` and ``right_excl - round(cx)``
+    (and likewise vertically). The window is the same fixed size for all frames;
+    only the center moves (no scaling, no rotation). Returns a dict with
+    win_height_px/win_width_px, the required half sizes, the float extent stats,
+    and ``fits_in_frame`` (False if 100% coverage would exceed the frame).
+    """
+    half_w_need = 0
+    half_h_need = 0
+    exts = []
+    for bbox, cen in zip(frame_bboxes, frame_centroids):
+        e = compute_extents(bbox, cen)
+        if e is None:
+            continue
+        exts.append(e)
+        top, left, bottom_excl, right_excl = bbox
+        cx, cy = cen
+        rcx, rcy = int(round(cx)), int(round(cy))
+        half_w_need = max(half_w_need, rcx - left, right_excl - rcx)
+        half_h_need = max(half_h_need, rcy - top, bottom_excl - rcy)
+
+    win_w_ideal = _ceil_to(2 * half_w_need, round_to)
+    win_h_ideal = _ceil_to(2 * half_h_need, round_to)
+    win_w = min(int(win_w_ideal), int(width))
+    win_h = min(int(win_h_ideal), int(height))
+    fits = (win_w_ideal <= int(width)) and (win_h_ideal <= int(height))
+    return {
+        "win_height_px": int(win_h),
+        "win_width_px": int(win_w),
+        "required_half_width_px": int(half_w_need),
+        "required_half_height_px": int(half_h_need),
+        "fits_in_frame": bool(fits),
+        "extent_stats": extent_stats(exts),
+    }
+
+
+def classify_tracking_window(win_h, win_w, cand_area_px, fits_in_frame,
+                             full_coverage, large_fraction=0.85):
+    """Decide whether a 100%-coverage tracking window is recommendable.
+
+    Returns one of:
+      ``auxiliary_only``            window doesn't fit the frame, or its area is
+                                    >= ``large_fraction`` of the global ROI (it has
+                                    lost local-analysis value);
+      ``rejected_clips_main_region``window still clips the cleaned main region;
+      ``candidate_full_coverage``   fits, small enough, and covers 100%.
+    """
+    win_area = int(win_h) * int(win_w)
+    too_large = (not fits_in_frame) or (
+        bool(cand_area_px) and win_area >= float(large_fraction) * float(cand_area_px))
+    if too_large:
+        return "auxiliary_only"
+    if not full_coverage:
+        return "rejected_clips_main_region"
+    return "candidate_full_coverage"
 
 
 def place_window(center_xy, win_h, win_w, height, width):

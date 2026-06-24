@@ -52,20 +52,56 @@ main regions are localized as follows:
   touches a frame edge.
 - **Melt-pool vertical travel** ≈ 38–53 px (~1.3–1.8 mm); per-frame 700 bbox
   ≈ 173×145 px (p95) / 181×169 px (p99).
-- **Recommended tracking window** (same size for all tracks/frames, moving
-  center, no scaling/rotation): **192×208 px (6.39×6.92 mm)**, full-coverage
-  **99.6%** of effective frames (35 clipped, 0 edge-adjusted).
+## Fixed tracking window — corrected sizing (extent-based)
+
+The window is the **same fixed size for every track and frame**; only its centre
+moves with the melt-pool centroid (no scaling, no rotation). Near a frame edge it
+is translated to stay inside the image (`edge_adjusted`), never resized.
+
+### Old (percentile-of-bbox-size) window — REJECTED
+
+The first design sized the window from the p99 of the per-frame 700 bbox
+**width/height** plus a margin, then centred it on the temperature **centroid**.
+Because the centroid is *not* the bbox geometric centre, an asymmetric main
+region extends further on one side than the window's half-size:
+
+- old window: **192×208 px**
+- old clipped frames: **35** (700 envelope) and **1** (800 core) — the main
+  region is clipped, so this window was **not** acceptable for features.
+
+### New (four-direction extent) window — ACCEPTED
+
+The corrected algorithm measures, per effective frame, the four placement-aware
+extents from the (float) centroid to the cleaned main-body bbox edges
+(`round(cx) − left`, `right_excl − round(cx)`, and the vertical pair), takes the
+worst case over all frames, doubles it and rounds up to a multiple of 8:
+
+- `left/right/top/bottom_extent` stats (min / p95 / p99 / max) are recorded in
+  the JSON (`centroid_to_bbox_extent_stats_px`);
+- new window: **256×216 px (8.52×7.19 mm)**;
+- **700 envelope coverage 100%, 800 core coverage 100%, clipped_frame_count = 0**,
+  edge-adjusted frames = 0;
+- window area (55,296 px) is **70%** of the candidate global ROI (79,360 px) — it
+  still isolates local melt-pool morphology, so it is not "too large".
+
+> Acceptance rule: a tracking window may be recommended for formal features only
+> when it covers the cleaned main 700 **and** 800 region of every frame with
+> `clipped_frame_count = 0`. If the smallest 100%-coverage window approaches the
+> global ROI (≥85% of its area) or exceeds the frame, the strategy falls back to
+> `single_global_fixed_roi` with `tracking_window_status = auxiliary_only`.
 
 ## Recommendation
 
-**`global_roi_plus_tracking_window`** (two-layer):
+**`global_roi_plus_tracking_window`** (two-layer); `tracking_window_status =
+candidate_full_coverage`:
 
 - a single fixed global ROI covers 100% but is ~78% per-frame background (the
   pool fills only ~22% of it and sweeps ~45 px upward), so
 - use the **fixed global ROI** for absolute position / trajectory / signed
-  centre offset / global stability, and a **fixed-size tracking window** centred
-  on the melt-pool centroid for per-frame morphology / width / length / local
-  temperature distribution / scan-direction & transverse gradients / asymmetry.
+  centre offset / global stability, and the **extent-based 256×216 px tracking
+  window** (100% 700+800 coverage, 0 clipped) centred on the melt-pool centroid
+  for per-frame morphology / width / length / local temperature distribution /
+  scan-direction & transverse gradients / asymmetry.
 
 Option A (single fixed global ROI) remains valid and 100%-covering if only
 position/coverage metrics are needed; option C (full 512×640) is unnecessary

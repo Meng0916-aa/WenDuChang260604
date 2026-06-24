@@ -43,10 +43,15 @@ process_parameters:
   status: confirmed
 
 # --- Conventions (consumed by the experiment_master generator) ---
-# Canonical raw-data source. FORMAL batch processing reads ONLY from here.
-# Do NOT use data/raw_xtherm as the formal source, and the early-test copy
+# Canonical raw-data source. PORTABLE resolution — this public config carries NO
+# machine-absolute path. The raw-data root is resolved (src/config/path_resolution.py)
+# by priority: 1) CLI --raw-data-root, 2) env WENDUCHANG_DATA_ROOT,
+# 3) configs/local.yaml (git-ignored; copy configs/local.example.yaml),
+# 4) this value below (null = unset) -> else a clear error.
+# Do NOT use data/raw_xtherm as the formal source; the early-test copy
 # data/raw_xtherm/dataset is excluded entirely.
-raw_data_root: "D:/WenDuChang-data-repo/raw_xtherm"
+raw_data_root: null
+raw_data_root_env: WENDUCHANG_DATA_ROOT
 
 # sample_id = condition_id + "_" + track_id  (e.g. C1_T1, R17_T3)
 sample_id_rule: "{condition_id}_{track_id}"

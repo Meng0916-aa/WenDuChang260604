@@ -47,7 +47,8 @@ from roi.roi_evaluation import (
     effective_frame_indices, effective_frame_info, bbox_union, bbox_width_height,
     rect_touches_frame, coverage_fraction, min_edge_distance,
     build_global_roi_candidate, size_percentiles, tracking_window_size,
-    evaluate_tracking_window,
+    tracking_window_from_extents, evaluate_tracking_window,
+    classify_tracking_window,
 )
 
 EXCLUDED_STEMS = {"dataset"}            # data/processed/matrix/dataset.npy excluded
@@ -169,6 +170,7 @@ def evaluate_track(matrix_path, env_thr, core_thr, vmin, vmax, hard, min_area,
         "track_bbox800": track_bbox800,
         "centroids": centroids,
         "bboxes700": bboxes700,
+        "bboxes800": bboxes800,
         "widths700": widths700,
         "heights700": heights700,
         "centroid_x_min": cx_min, "centroid_x_max": cx_max,
@@ -209,6 +211,7 @@ def run(args):
     missing = []
     all_widths, all_heights = [], []
     all_frame_bboxes, all_frame_centroids = [], []
+    all_frame_bboxes800 = []
 
     for r in samples:
         sid = r["sample_id"].strip()
@@ -226,6 +229,7 @@ def run(args):
         all_widths.extend(t["widths700"])
         all_heights.extend(t["heights700"])
         all_frame_bboxes.extend(t["bboxes700"])
+        all_frame_bboxes800.extend(t["bboxes800"])
         all_frame_centroids.extend(t["centroids"])
         print(f"[03a] {sid}: eff={t['effective']['effective_frame_count']} "
               f"bbox700={t['track_bbox700']} vtravel_px="
@@ -242,38 +246,55 @@ def run(args):
                                        H, W, round_to=int(args.round_to))
     cand_rect = cand["rect"] if cand else (0, 0, H, W)
 
-    # --- tracking-window candidates from the 700 bbox size distribution ---
+    # --- tracking window: LEGACY percentile sizing vs NEW extent-based sizing ---
     width_pcts = size_percentiles(all_widths, (95, 99))
     height_pcts = size_percentiles(all_heights, (95, 99))
-    if args.tracking_window_height and args.tracking_window_width:
-        rec_win = (int(args.tracking_window_height), int(args.tracking_window_width))
-    else:
-        rec_win = tracking_window_size(all_widths, all_heights, percentile=99,
-                                       edge_safety_margin=edge_margin,
-                                       round_to=int(args.round_to),
-                                       height=H, width=W)
-    rec_win_h, rec_win_w = rec_win
-
-    # window candidate set: p95, p99, recommended
-    def _win_from(pw, ph):
-        ww = min(int(np.ceil((pw + 2 * edge_margin) / args.round_to) * args.round_to), W)
-        wh = min(int(np.ceil((ph + 2 * edge_margin) / args.round_to) * args.round_to), H)
-        return (wh, ww)
-    win_candidates = []
-    seen = set()
-    for (wh, ww) in [_win_from(width_pcts[95], height_pcts[95]),
-                     _win_from(width_pcts[99], height_pcts[99]),
-                     (rec_win_h, rec_win_w)]:
-        if (wh, ww) not in seen:
-            seen.add((wh, ww)); win_candidates.append((wh, ww))
-
     total_eff_frames = sum(t["effective"]["effective_frame_count"] for t in per_track.values())
-    win_rows = []
-    for (wh, ww) in win_candidates:
-        ev = evaluate_tracking_window(all_frame_bboxes, all_frame_centroids, wh, ww, H, W)
-        ev["estimated_output_size_bytes"] = int(total_eff_frames * wh * ww * 4)
-        win_rows.append(ev)
-    rec_cov = next((e for e in win_rows if (e["window_height_px"], e["window_width_px"]) == (rec_win_h, rec_win_w)), win_rows[-1])
+
+    def _eval_window(wh, ww, method):
+        ev700 = evaluate_tracking_window(all_frame_bboxes, all_frame_centroids, wh, ww, H, W)
+        ev800 = evaluate_tracking_window(all_frame_bboxes800, all_frame_centroids, wh, ww, H, W)
+        ev700["method"] = method
+        ev700["core_800_coverage_rate"] = ev800["coverage_rate"]
+        ev700["core_800_clipped_frame_count"] = ev800["clipped_frame_count"]
+        ev700["estimated_output_size_bytes"] = int(total_eff_frames * wh * ww * 4)
+        return ev700
+
+    # LEGACY window (percentile of bbox size + margin, centered on centroid) —
+    # kept ONLY to document its clipping defect.
+    old_win_h, old_win_w = tracking_window_size(
+        all_widths, all_heights, percentile=99, edge_safety_margin=edge_margin,
+        round_to=int(args.round_to), height=H, width=W)
+    old_win = _eval_window(old_win_h, old_win_w, "legacy_percentile")
+
+    # NEW extent-based window: guarantees containment of every frame's main bbox
+    # about its centroid (placement-aware four-direction extents).
+    if args.tracking_window_height and args.tracking_window_width:
+        new_win_h, new_win_w = int(args.tracking_window_height), int(args.tracking_window_width)
+        win_meta = {"win_height_px": new_win_h, "win_width_px": new_win_w,
+                    "fits_in_frame": new_win_h <= H and new_win_w <= W,
+                    "extent_stats": tracking_window_from_extents(
+                        all_frame_bboxes, all_frame_centroids, int(args.round_to), H, W)["extent_stats"]}
+    else:
+        win_meta = tracking_window_from_extents(
+            all_frame_bboxes, all_frame_centroids, round_to=int(args.round_to),
+            height=H, width=W)
+        new_win_h, new_win_w = win_meta["win_height_px"], win_meta["win_width_px"]
+    new_win = _eval_window(new_win_h, new_win_w, "extent_based")
+
+    win_rows = [old_win, new_win]
+    rec_win_h, rec_win_w = new_win_h, new_win_w
+    rec_cov = new_win
+    extent_stats_d = win_meta["extent_stats"]
+
+    # Window large enough to lose its local-analysis value? (~ the global ROI)
+    cand_area_px = cand["candidate_area_px"] if cand else (H * W)
+    window_full_coverage = (new_win["clipped_frame_count"] == 0 and
+                            new_win["core_800_clipped_frame_count"] == 0)
+    window_status_pre = classify_tracking_window(
+        new_win_h, new_win_w, cand_area_px,
+        win_meta.get("fits_in_frame", True), window_full_coverage)
+    window_too_large = (window_status_pre == "auxiliary_only")
 
     # --- per-track coverage vs old + candidate ROI, edge touch, status ---
     track_rows = []
@@ -373,6 +394,11 @@ def run(args):
 
     reasons = []
     manual = sorted(set(no_env_samples) | set(no_core_samples))
+    # The extent-based window is "usable for formal features" ONLY when it
+    # contains the 700 envelope AND 800 core of every frame with zero clipping
+    # (isolated splatter / above-range / hard-sat are already excluded upstream).
+    tracking_window_status = window_status_pre
+
     if manual:
         strategy = "manual_review_required"
         reasons.append(f"{len(manual)} sample(s) lack a 700 envelope or 800 core")
@@ -383,14 +409,24 @@ def run(args):
         strategy = "use_full_frame"
         reasons.append(f"candidate ROI is {cand_fraction:.0%} of the full frame "
                        "after margin — cropping saves little")
-    elif bg_ratio >= 0.70 or median_vtravel >= 0.10 * H:
+    elif window_too_large:
+        # A 100%-coverage window is ~ the global ROI -> it has lost local-analysis
+        # value; fall back to a single fixed global ROI, window auxiliary only.
+        strategy = "single_global_fixed_roi"
+        reasons.append(
+            f"the smallest 100%-coverage tracking window ({new_win_h}x{new_win_w} px) is "
+            f">=85% of the candidate global ROI (or exceeds the frame), so it no longer "
+            f"isolates local melt-pool morphology: use the single fixed global ROI; the "
+            f"tracking window is auxiliary_only")
+    elif window_full_coverage and (bg_ratio >= 0.70 or median_vtravel >= 0.10 * H):
         strategy = "global_roi_plus_tracking_window"
         reasons.append(
             f"a single fixed ROI is ~{bg_ratio:.0%} per-frame background (the melt pool "
             f"fills only ~{(1 - bg_ratio):.0%} of it) and the pool travels ~{median_vtravel:.0f}px "
             f"vertically: use the fixed global ROI for absolute position / trajectory / signed "
-            f"offset, and a fixed-size tracking window (same size for all tracks, moving center) "
-            f"for per-frame melt-pool morphology / width / gradients / asymmetry")
+            f"offset, and the extent-based fixed-size tracking window ({new_win_h}x{new_win_w} px, "
+            f"100% 700+800 coverage, 0 clipped frames) for per-frame melt-pool morphology / width / "
+            f"gradients / asymmetry")
         reasons.append(
             "the single fixed global ROI (option A) remains valid and covers 100% if only "
             "position / coverage metrics are needed - the window is additive, not a replacement")
@@ -398,6 +434,11 @@ def run(args):
         strategy = "single_global_fixed_roi"
         reasons.append(f"candidate ROI covers 100% with background ratio "
                        f"~{bg_ratio:.0%} and modest travel (~{median_vtravel:.0f}px)")
+    if not window_full_coverage and strategy == "global_roi_plus_tracking_window":
+        # never recommend a window that still clips the main region
+        strategy = "single_global_fixed_roi"
+        reasons.append("tracking window still clips the main region -> not recommended for "
+                       "features; fell back to single_global_fixed_roi")
     if edge_touch_samples and strategy != "use_full_frame":
         reasons.append(f"NOTE: edge-touch samples need review: {edge_touch_samples[:5]}")
 
@@ -461,8 +502,9 @@ def run(args):
         "summary": _build_summary(
             per_track, calib, old_roi, old_cov700_min, old_cov800_min,
             old_roi_usable, old_edge_fail, raw_global_700, raw_global_800, cand,
-            cand_cov700_min, cand_cov800_min, cand_edge_fail, win_candidates,
-            (rec_win_h, rec_win_w), rec_cov, H, W, px_x, px_y, vmin, vmax, hard,
+            cand_cov700_min, cand_cov800_min, cand_edge_fail,
+            old_win, new_win, extent_stats_d, tracking_window_status,
+            H, W, px_x, px_y, vmin, vmax, hard,
             edge_margin, strategy, reasons, manual, edge_touch_samples,
             worst_cond, width_pcts, height_pcts),
     }
@@ -471,10 +513,10 @@ def run(args):
 
 def _build_summary(per_track, calib, old_roi, old700, old800, old_usable,
                    old_edge_fail, raw700, raw800, cand, cand700, cand800,
-                   cand_edge_fail, win_candidates, rec_win, rec_cov, H, W,
-                   px_x, px_y, vmin, vmax, hard, edge_margin, strategy, reasons,
+                   cand_edge_fail, old_win, new_win, extent_stats_d, tracking_window_status,
+                   H, W, px_x, px_y, vmin, vmax, hard, edge_margin, strategy, reasons,
                    manual, edge_touch_samples, worst_cond, width_pcts, height_pcts):
-    rec_win_h, rec_win_w = rec_win
+    rec_win_h, rec_win_w = new_win["window_height_px"], new_win["window_width_px"]
     return {
         "sample_count": len(per_track),
         "effective_frame_rule": "frames[1:] (exclude startup frame 0; effective = frames 2..last)",
@@ -506,14 +548,28 @@ def _build_summary(per_track, calib, old_roi, old700, old800, old_usable,
         "global_roi_edge_fail_samples": cand_edge_fail,
         "bbox700_width_p95_px": _f(width_pcts[95]), "bbox700_width_p99_px": _f(width_pcts[99]),
         "bbox700_height_p95_px": _f(height_pcts[95]), "bbox700_height_p99_px": _f(height_pcts[99]),
-        "tracking_window_candidates": [
-            {"height_px": h, "width_px": w} for (h, w) in win_candidates],
+        "centroid_to_bbox_extent_stats_px": extent_stats_d,
+        "legacy_tracking_window": {
+            "height_px": old_win["window_height_px"], "width_px": old_win["window_width_px"],
+            "coverage_rate_700": _f(old_win["coverage_rate"]),
+            "clipped_frame_count_700": old_win["clipped_frame_count"],
+            "coverage_rate_800": _f(old_win["core_800_coverage_rate"]),
+            "clipped_frame_count_800": old_win["core_800_clipped_frame_count"],
+            "method": "legacy_percentile_centered_on_centroid",
+        },
         "recommended_tracking_window": {
             "height_px": rec_win_h, "width_px": rec_win_w,
-            "height_mm": _f(rec_win_h * px_y), "width_mm": _f(rec_win_w * px_x)},
-        "tracking_window_coverage_rate": _f(rec_cov["coverage_rate"]),
-        "tracking_window_clipped_frame_count": rec_cov["clipped_frame_count"],
-        "tracking_window_edge_adjusted_frame_count": rec_cov["edge_adjusted_frame_count"],
+            "height_mm": _f(rec_win_h * px_y), "width_mm": _f(rec_win_w * px_x),
+            "method": "extent_based_placement_aware"},
+        "tracking_window_status": tracking_window_status,
+        "tracking_window_coverage_rate_700": _f(new_win["coverage_rate"]),
+        "tracking_window_coverage_rate_800": _f(new_win["core_800_coverage_rate"]),
+        "tracking_window_clipped_frame_count_700": new_win["clipped_frame_count"],
+        "tracking_window_clipped_frame_count_800": new_win["core_800_clipped_frame_count"],
+        "tracking_window_edge_adjusted_frame_count": new_win["edge_adjusted_frame_count"],
+        # back-compat aliases (QC figures / console)
+        "tracking_window_coverage_rate": _f(new_win["coverage_rate"]),
+        "tracking_window_clipped_frame_count": new_win["clipped_frame_count"],
         "full_frame_dimensions": [H, W],
         "full_frame_physical_size_mm": [_f(H * px_y), _f(W * px_x)],
         "edge_touch_samples": edge_touch_samples,
@@ -592,7 +648,14 @@ def main(argv=None):
     print(f"[03a] raw global bbox 700   : {s['raw_global_bbox_700']}")
     print(f"[03a] candidate global ROI  : {s['recommended_global_roi']}")
     print(f"[03a] candidate min cov 700/800: {s['global_roi_min_coverage_700']} / {s['global_roi_min_coverage_800']}")
-    print(f"[03a] recommended tracking window: {s['recommended_tracking_window']} cov={s['tracking_window_coverage_rate']}")
+    lw = s["legacy_tracking_window"]
+    print(f"[03a] LEGACY window {lw['height_px']}x{lw['width_px']}: 700 clipped={lw['clipped_frame_count_700']} "
+          f"800 clipped={lw['clipped_frame_count_800']} (defect: centroid != bbox center)")
+    nw = s["recommended_tracking_window"]
+    print(f"[03a] NEW extent window {nw['height_px']}x{nw['width_px']}: "
+          f"700 cov={s['tracking_window_coverage_rate_700']} (clip={s['tracking_window_clipped_frame_count_700']}) "
+          f"800 cov={s['tracking_window_coverage_rate_800']} (clip={s['tracking_window_clipped_frame_count_800']}) "
+          f"status={s['tracking_window_status']}")
     print(f"[03a] RECOMMENDED STRATEGY  : {s['recommended_strategy']}")
     for r in s["recommendation_reasons"]:
         print(f"        - {r}")

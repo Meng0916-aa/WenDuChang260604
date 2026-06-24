@@ -44,6 +44,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 
 from config.physical_calibration import load_physical_calibration
+from config.path_resolution import resolve_data_root
 
 # Exact column order for experiment_master.csv (one row per single track).
 COLUMNS = [
@@ -113,9 +114,12 @@ def count_xtherm(folder):
     return len(found)
 
 
-def build_rows(cfg, calib, proc):
-    """Build the 57 track rows from config + calibration + real raw-data folders."""
-    raw_root = cfg["raw_data_root"]
+def build_rows(cfg, calib, proc, raw_root):
+    """Build the 57 track rows from config + calibration + real raw-data folders.
+
+    ``raw_root`` is the resolved (portable) raw-data root, NOT read from a
+    machine-absolute path baked into the public config.
+    """
     track_order_map = cfg.get("track_order_map", {"T1": 1, "T2": 2, "T3": 3})
 
     fixed = cfg.get("fixed_process_parameters", {})
@@ -244,13 +248,19 @@ def main():
     parser.add_argument("--calibration-config",
                         default="configs/physical_calibration.yaml")
     parser.add_argument("--output", default="data/metadata/experiment_master.csv")
+    parser.add_argument("--raw-data-root", default=None,
+                        help="raw-data root (highest priority; else env "
+                             "WENDUCHANG_DATA_ROOT / configs/local.yaml)")
     args = parser.parse_args()
 
     cfg = load_experiments(args.config)
     proc = cfg.get("process_parameters", {"source": "", "status": ""})
     calib = load_physical_calibration(args.calibration_config)   # validates
+    resolved = resolve_data_root(cli_arg=args.raw_data_root,
+                                 experiments_config=args.config)
+    print(f"[00] raw-data root      : {resolved.path}  (source: {resolved.source})")
 
-    rows, warnings = build_rows(cfg, calib, proc)
+    rows, warnings = build_rows(cfg, calib, proc, resolved.path)
     out = write_csv(rows, args.output)
 
     n_conditions = len({r["condition_id"] for r in rows})

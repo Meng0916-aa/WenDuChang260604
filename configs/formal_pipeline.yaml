@@ -1,0 +1,44 @@
+# ============================================================
+# FORMAL 57-track thermal-field pipeline — config entry of record.
+#
+# This is the single ACTIVE pipeline configuration. It references the other
+# formal configs by RELATIVE path only (no machine-absolute paths here); the
+# raw-data root is resolved at run time by src/config/path_resolution.py.
+# configs/default.yaml is LEGACY (legacy_pilot) and is NOT part of this pipeline.
+# ============================================================
+
+schema_version: 1
+
+pipeline:
+  name: formal_57_track_thermal_field_pipeline
+  status: active
+  experiment_config: configs/experiments.yaml
+  calibration_config: configs/physical_calibration.yaml
+  local_config: configs/local.yaml          # git-ignored; machine-specific paths
+  master_csv: data/metadata/experiment_master.csv
+
+# Raw-data root resolution priority (no absolute path stored here):
+#   1) CLI --raw-data-root  2) env WENDUCHANG_DATA_ROOT
+#   3) configs/local.yaml   4) configs/experiments.yaml (null) -> else error
+data_root_resolution:
+  env_var: WENDUCHANG_DATA_ROOT
+  local_config: configs/local.yaml
+  example_config: configs/local.example.yaml
+
+processing:
+  exclude_legacy_dataset: true
+  preserve_full_temperature_matrix: true
+  effective_frame_start_index: 1            # frames[1:]; frame 0 = startup
+  generate_formal_roi_matrices: false       # NOT yet — awaits user confirmation
+  formal_feature_extraction_enabled: false  # NOT yet
+
+roi_strategy:
+  status: evaluated_not_finalized
+  evaluation_summary: results/qc/roi/roi_strategy_summary.json
+  evaluation_doc: docs/roi_strategy_evaluation.md
+
+# Configuration that must NOT be used for formal 57-track processing.
+forbidden_for_formal:
+  - configs/default.yaml          # legacy_pilot (config_status.formal_processing_enabled=false)
+  - data/raw_xtherm/dataset       # early-test dataset directory
+  - data/exported/npy/dataset.npy # early-test dataset matrix

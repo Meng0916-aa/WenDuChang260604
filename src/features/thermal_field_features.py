@@ -26,6 +26,11 @@ Pure NumPy; no torch / matplotlib imports, so each function is unit-testable.
 
 import numpy as np
 
+# The threshold mask has ONE canonical implementation, in the shared processing
+# layer. This module imports it (features -> processing is the allowed
+# direction; processing never imports features, so there is no cycle).
+from processing.temperature_mask import build_threshold_mask
+
 
 # ---------------------------------------------------------------------------
 # Single-frame primitives
@@ -35,6 +40,9 @@ def compute_high_temperature_mask(frame: np.ndarray, threshold: float) -> np.nda
     """
     Boolean mask of pixels at/above a temperature threshold.
 
+    Backward-compatible thin wrapper: the real implementation is
+    ``processing.temperature_mask.build_threshold_mask``.
+
     Args:
         frame: 2-D array (H, W) in Celsius.
         threshold: Celsius level.
@@ -42,10 +50,7 @@ def compute_high_temperature_mask(frame: np.ndarray, threshold: float) -> np.nda
     Returns:
         bool array (H, W), True where frame >= threshold.
     """
-    f = np.asarray(frame, dtype=np.float32)
-    if f.ndim != 2:
-        raise ValueError(f"frame must be 2-D (H, W), got shape {f.shape}")
-    return f >= float(threshold)
+    return build_threshold_mask(frame, threshold)
 
 
 def compute_high_temperature_area(frame: np.ndarray, threshold: float,

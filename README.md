@@ -71,9 +71,21 @@ ROI cropping waits for user confirmation. See `docs/roi_strategy_evaluation.md`.
 
 ## Environment
 
-This project runs PyTorch **only** in the conda environment named `pytorch`
-(PyTorch 2.11.0+cu128, CUDA available). **Do not** run `pip install torch`, and **do not**
-install PyTorch into the `base` environment.
+Install the base dependencies with pip:
+
+```powershell
+pip install -r requirements.txt
+```
+
+**PyTorch is managed separately and is NOT in `requirements.txt`.** This project runs PyTorch
+**only** in an existing conda environment named `pytorch` (a CUDA build). Installing it via
+`requirements.txt` could overwrite that CUDA build, so:
+
+- **Do not** run `pip install torch`, and **do not** install PyTorch into the `base` environment.
+- Install/verify PyTorch yourself only when GPU training is needed, and check
+  `torch.cuda.is_available()`.
+- The current 57-track formal pipeline (metadata → conversion → conversion QC → ROI strategy
+  evaluation) does **not** require PyTorch.
 
 On Windows PowerShell, before running any PyTorch script:
 
@@ -83,6 +95,14 @@ $env:KMP_DUPLICATE_LIB_OK="TRUE"
 ```
 
 (The `KMP_DUPLICATE_LIB_OK` variable avoids an OpenMP duplicate-runtime crash on Windows.)
+Full details: `docs/environment_setup.md`.
+
+### Local machine paths (portable)
+
+The raw-data root is **not** hard-coded in the repo. It is resolved by priority: CLI
+`--raw-data-root` > env `WENDUCHANG_DATA_ROOT` > `configs/local.yaml` (git-ignored; copy
+`configs/local.example.yaml`) > `configs/experiments.yaml` (`null`) > clear error. See
+`src/config/path_resolution.py` and `docs/formal_pipeline.md`.
 
 ## Data Format
 
@@ -110,7 +130,9 @@ data/
   exported/{csv,npy,h5}/   <- exported temperature matrices
   processed/{matrix,roi,thermal_cycle,samples}/
   metadata/
-configs/                   <- YAML configuration (default.yaml)
+configs/                   <- YAML config: formal_pipeline.yaml (ACTIVE) +
+                              experiments.yaml + physical_calibration.yaml;
+                              default.yaml = LEGACY; local.yaml = machine paths (git-ignored)
 src/                       <- source modules
 scripts/                   <- numbered pipeline scripts
 tests/                     <- unit + smoke tests
@@ -118,132 +140,72 @@ results/{figures,tables,logs,checkpoints}/
 docs/                      <- documentation
 ```
 
-## Full Run (Windows PowerShell)
+## Current formal workflow (the ONLY recommended pipeline)
+
+The active pipeline entry of record is `configs/formal_pipeline.yaml`
+(it references `configs/experiments.yaml` + `configs/physical_calibration.yaml`).
+`configs/default.yaml` is **legacy** and is not used here. Full detail:
+`docs/formal_pipeline.md`.
+
+```
+experiment design + physical metadata
+  → 57 single-track .xtherm conversion          (scripts/02c_batch_convert_tracks.py)
+  → conversion QC                               (scripts/02c --qc → scripts/02d report)
+  → ROI strategy evaluation                     (scripts/03a_evaluate_roi_strategy.py)
+  → USER confirms fixed ROI / tracking window      [decision gate]
+  → formal ROI or analysis-window generation    (planned)
+  → 57 single-track temperature-field features  (planned)
+  → T1/T2/T3 in-plate repeat aggregation        (planned)
+  → 19-condition response-surface analysis      (planned)
+```
+
+**Current formal entry points** (the only scripts to run now):
 
 ```powershell
 conda activate pytorch
 $env:KMP_DUPLICATE_LIB_OK="TRUE"
 
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
-python scripts/05_build_window_dataset.py --config configs/default.yaml
-python scripts/06_train_model.py --config configs/default.yaml
-python scripts/07_evaluate_model.py --config configs/default.yaml
-python scripts/08_plot_results.py --config configs/default.yaml
-python scripts/09_analyze_temporal_features.py --config configs/default.yaml
+# 1. Build the per-track metadata map (local CSV; raw-data root resolved portably)
+python scripts/00_build_experiment_master.py
+
+# 2. Convert the 57 single tracks (read-only on raw .xtherm) + conversion QC
+python scripts/02c_batch_convert_tracks.py --master-csv data/metadata/experiment_master.csv --all --qc
+
+# 3. Evaluate ROI / tracking-window strategy (writes NO ROI matrices)
+python scripts/03a_evaluate_roi_strategy.py
 ```
 
-If no real exported data exists, step **05** generates a small **SIMULATED** dataset so the
-training/evaluation/plotting chain (05→08) runs end-to-end. Simulated results only prove the
-code chain works — they are **not** experimental conclusions.
+**Done:** 19-condition / 57-track metadata · spatial calibration + camera/optics/substrate
+metadata · 57 full temperature matrices · conversion QC · ROI strategy evaluation.
 
-## Recommended Workflows
+**Not yet executed (planned):** formal ROI matrix generation · formal temperature-field feature
+extraction · condition-level response-surface fitting · section-level quality-label modelling.
 
-All workflows share the same 01→03 preprocessing.
+> No formal ROI matrices and no formal temperature-field features have been generated yet.
 
-**A0. Binary `.xtherm` import (real camera data)** —
-`raw_xtherm/dataset/*.xtherm → 02b → exported/npy/dataset.npy → 02 → 03 → 10`
+## Legacy and future-stage workflows
 
-```powershell
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/10_extract_thermal_field_features.py --config configs/default.yaml
-```
+> **Not part of the current 57-track formal pipeline. Do not run unless explicitly working on
+> legacy pilot data or the later section-level quality-prediction stage.** These use the legacy
+> `configs/default.yaml` (`config_status.role: legacy_pilot`), the early-test `dataset.npy`
+> entry, the old `03_extract_roi.py`, the LSTM baseline, and scripts 13–16. The early-test
+> `dataset` path and old ROI are disabled for formal processing.
 
-Script `02b` reads the binary `.xtherm` frames (read-only), stacks them into
-`data/exported/npy/dataset.npy` (N × H × W float32 **Celsius**) plus
-`dataset_meta.json`, then the normal `02 → 03 → 10` chain continues. Because
-`02b` output is already Celsius, `data.exported_is_celsius` must stay `true`.
+- **Legacy A0 — binary pilot import:** `01 → 02b (dataset.npy) → 02 → 03 → 10`. Early-test
+  `data/raw_xtherm/dataset` only; the formal pipeline converts per-track via `02c` instead.
+- **Legacy A — ML quality assessment:** `01 → 02 → 03 → 10 → 11 → 12` (needs cross-section
+  quality labels; later stage).
+- **Legacy B — temporal feature analysis:** `01 → 02 → 03 → 04 → 09`.
+- **Legacy C — LSTM prediction (optional):** `01 → 02 → 03 → 04 → 05 → 06 → 07 → 08` (requires
+  the separately-managed `pytorch` env; SIMULATED fallback in step 05 is code-validation only,
+  never an experimental conclusion).
+- **Future-stage D — section-level ML quality prediction:** `13 → 14 → 15 → 16` (cross-section
+  sample unit; GroupKFold/LeaveOneGroupOut on `experiment_id`). Kept in the repo, **not run** in
+  the current phase. See `docs/section_level_ml_dataset.md`, `docs/ml_quality_assessment.md`.
 
-**A. ML quality assessment (MAIN LINE, small samples)** — `01 → 02 → 03 → 10 → 11 → 12`
-
-```powershell
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/10_extract_thermal_field_features.py --config configs/default.yaml
-python scripts/11_build_ml_quality_dataset.py --config configs/default.yaml
-python scripts/12_train_ml_quality_model.py --config configs/default.yaml
-```
-
-Extracts one thermal-field feature row per experiment, merges with substrate
-cross-section **quality labels** (`data/metadata/quality_labels.csv`, local), and trains
-traditional ML models. Quality labels come from substrate cross-section measurements — see
-`docs/quality_label_template.md` and `docs/ml_quality_assessment.md`.
-
-**B. Temporal feature analysis** — `01 → 02 → 03 → 04 → 09`
-
-```powershell
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
-python scripts/09_analyze_temporal_features.py --config configs/default.yaml
-```
-
-Produces `results/tables/temporal_features.csv` and temporal feature figures. See
-`docs/temporal_analysis.md`.
-
-**C. LSTM deep-learning prediction (OPTIONAL, for larger datasets)** —
-`01 → 02 → 03 → 04 → 05 → 06 → 07 → 08`
-
-```powershell
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/04_extract_thermal_cycle.py --config configs/default.yaml
-python scripts/05_build_window_dataset.py --config configs/default.yaml
-python scripts/06_train_model.py --config configs/default.yaml
-python scripts/07_evaluate_model.py --config configs/default.yaml
-python scripts/08_plot_results.py --config configs/default.yaml
-```
-
-The LSTM baseline is best suited to **larger** datasets; with few experiments prefer
-workflow A.
-
-**D. Section-level ML quality prediction** — `01 → 02b → 02 → 03 → 13 → 14 → 15 → 16`
-*(LATER PHASE — scripts 13–16 are currently **NOT run**; kept in the repo, not deleted. See the current/later-phase note at the top.)*
-
-```powershell
-python scripts/01_check_raw_data.py --config configs/default.yaml
-python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
-python scripts/02_convert_exported_to_npy.py --config configs/default.yaml
-python scripts/03_extract_roi.py --config configs/default.yaml
-python scripts/13_extract_local_section_features.py --config configs/default.yaml
-python scripts/14_build_section_ml_dataset.py --config configs/default.yaml
-python scripts/15_train_section_quality_model.py --config configs/default.yaml
-python scripts/16_plot_section_ml_results.py --config configs/default.yaml
-```
-
-The ML **sample unit is a cross-section position** (e.g. `R01_T1_S1`), **not** a
-temperature-field frame. Each sample = process parameters + **local**
-thermal-field features around that section's frame window.
-
-- `13` maps each section position to a local frame window and extracts `local_*`
-  features (reusing the `thermal_field_features` math).
-- `14` merges local features with cross-section quality labels and derives
-  `dilution_rate` / `aspect_ratio` / `wetting_angle_avg` / `wetting_angle_diff`
-  and a Good/Bad label.
-- `15` trains regression + classification models with **GroupKFold /
-  LeaveOneGroupOut on `experiment_id`** — sections of the same experiment are
-  **never** split across train and test (no random shuffling, no leakage).
-- `16` plots prediction scatter, confusion matrices, feature importance, and an
-  input-set comparison.
-
-Three input sets — **process_only**, **thermal_only**, **fused** — are compared
-to test whether local thermal-field features improve section-quality prediction.
-`section_plan.csv` and `section_quality_labels.csv` are **local** files (see
-`docs/section_level_ml_dataset.md` and `docs/section_quality_label_template.md`);
-the scripts give clear guidance instead of fabricating data when they are absent.
-
-> **SIMULATED data caveat:** if inputs are `SIM_*` (the script-05 fallback), every output
-> table and figure is tagged `SIMULATED`. Such results only validate the code chain and must
-> **never** be cited as experimental conclusions. Archive `SIM_*` before importing real data
-> (see `docs/after_experiment_checklist.md`).
+> **SIMULATED data caveat:** if inputs are `SIM_*` (the script-05 fallback), every output table
+> and figure is tagged `SIMULATED` — code-chain validation only, never an experimental
+> conclusion. See `docs/after_experiment_checklist.md`.
 
 ## Pipeline Scripts
 

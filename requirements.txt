@@ -1,11 +1,18 @@
-numpy>=1.24.0
-scipy>=1.10.0
-pandas>=1.5.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
+# Base Python dependencies for the formal 57-track thermal-field pipeline.
+#
+# PyTorch is intentionally NOT listed here: this project uses an existing conda
+# `pytorch` environment with a CUDA build, and `pip install -r requirements.txt`
+# must never overwrite it. See docs/environment_setup.md and the README
+# "Environment" section. Install torch separately only if deep-learning training
+# is needed, and verify torch.cuda.is_available() yourself.
+numpy>=1.24,<3.0
+scipy>=1.10
+pandas>=1.5
+matplotlib>=3.7
+seaborn>=0.12
 pyyaml>=6.0
-h5py>=3.8.0
-torch>=2.0.0
-scikit-learn>=1.2.0
-tqdm>=4.65.0
-openpyxl>=3.1.0   # optional: only needed to read .xlsx quality-label files
+h5py>=3.8
+scikit-learn>=1.2
+tqdm>=4.65
+pytest>=7.0
+openpyxl>=3.1   # optional: only needed to read .xlsx label/template files
