@@ -142,15 +142,17 @@ section quality labels, run quality classification, or run scripts 13–16.
 ### Subsequent data-processing order
 
 1. Read raw `.xtherm` per track from the canonical data source
-   (`configs/experiments.yaml` → `raw_data_root`).
-2. Convert raw `.xtherm` → float32 Celsius matrices (N × H × W), per track. *(not run yet)*
-3. ROI crop per track. *(not run yet)*
-4. Extract whole-track thermal-field features, **one row per track** (57 rows). *(not run yet)*
-5. Aggregate per condition over T1/T2/T3 → mean / std / CV (19 rows). *(not run yet)*
-6. Response-surface and with-/without-magnetic-field comparison. *(not run yet)*
+   (`configs/experiments.yaml` → `raw_data_root`). *(metadata complete)*
+2. Convert raw `.xtherm` → float32 Celsius matrices (N × H × W), per track. *(completed)*
+3. Evaluate ROI strategy over the 57 full-frame matrices. *(completed)*
+4. Generate formal ROI or analysis-window matrices. *(not started; disabled)*
+5. Extract whole-track thermal-field features, **one row per track** (57 rows). *(not started; disabled)*
+6. Aggregate per condition over T1/T2/T3 → mean / std / CV (19 rows). *(not started)*
+7. Response-surface and with-/without-magnetic-field comparison. *(not started)*
 
-> Steps 2–6 are **not executed** in this task. This task only records the formal
-> plan, writes the machine-readable config, and builds the local metadata map.
+> Formal ROI generation and formal feature extraction remain disabled. Existing
+> legacy or local historical result tables do not prove these formal stages have
+> been completed.
 
 ## 7. Later phase (not now)
 

@@ -10,7 +10,7 @@ are never concatenated.
 |--------|----------|
 | `configs/experiments.yaml` | formal 19-condition design, `raw_data_root`, tracks, fixed params |
 | `data/metadata/experiment_master.csv` | per-track processing list (`sample_id`, `raw_folder`, `xtherm_count`, …) |
-| `configs/default.yaml → xtherm_binary` | verified binary FORMAT only (56-byte header, 640×512, little-endian uint16, scale 0.1) |
+| `configs/xtherm_format.yaml` | verified binary format, image dimensions, temperature scaling, camera range, conversion-QC thresholds |
 
 The legacy `data/raw_xtherm/dataset` + `dataset.npy` in `default.yaml` stay as the
 old single-dataset test path **only** — `02c` never uses them and refuses any
@@ -65,6 +65,11 @@ results/tables/pilot_conversion_qc.csv         # pilot QC summary               
 
 ## Scope / status
 
-Current phase converts whole tracks only. ROI (`03`), thermal-field feature
-extraction (`10`), section-level scripts `13–16`, and full-57 batch conversion
-are **not run yet** in this phase.
+Current formal conversion status: the 57 full-frame matrices already exist under
+`data/processed/matrix/`, and the 57-track conversion dry-run has passed.
+
+Do not treat this document as an instruction to regenerate those matrices. Do
+not use `--overwrite` unless the user explicitly approves it.
+
+ROI generation, formal thermal-field feature extraction, section-level scripts
+`13–16`, and response-surface analysis are not active in this phase.

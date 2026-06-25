@@ -1,10 +1,43 @@
 # Real Data Import Guide
 
-How to bring real Xiris VXIR-3000 camera data into the pipeline. The internal
-`.xtherm` binary is **not** parsed by this project — you export temperature
-matrices from WeldStudio and feed those in.
+How to bring real Xiris VXIR-3000 camera data into the pipeline. The project
+supports two import paths:
 
-## 1. Raw `.xtherm` files — backup only
+1. **Formal 57-track path:** `scripts/02c_batch_convert_tracks.py` directly
+   parses verified binary `.xtherm` frames using `configs/xtherm_format.yaml`
+   and writes one full-frame matrix per single track.
+2. **Legacy-compatible paths:** `scripts/02b_convert_xtherm_binary_to_npy.py`
+   converts a historical single dataset directory, while exported `.npy` /
+   `.csv` / `.h5` files remain supported by the older import workflow.
+
+`src/io/xtherm_reader.py` is interface-only, but verified binary parsing is
+implemented in `src/conversion/xtherm_binary.py`.
+
+## Formal 57-track workflow
+
+The current formal workflow is the 57-track path:
+
+- Experiment IDs: `C1`, `C2`, `R1`-`R17`.
+- Track IDs: `T1`, `T2`, `T3`.
+- Magnetic-field levels: 0, 60, 120 mT.
+- Master file: `data/metadata/experiment_master.csv`.
+- Converter: `scripts/02c_batch_convert_tracks.py`.
+- Format authority: `configs/xtherm_format.yaml`.
+- No need to re-export matrices through WeldStudio.
+- Existing 57 matrices must not be regenerated merely for validation.
+- The converter writes one matrix per track and never concatenates `T1/T2/T3`.
+- `configs/default.yaml` is not used as formal authority.
+
+The formal 57-track conversion is already complete. Do not use `--overwrite`
+unless explicitly approved by the user.
+
+## Legacy pilot import workflow
+
+The remaining sections describe historical or legacy-compatible import paths.
+They are not part of the current formal 57-track workflow unless the user
+explicitly activates a legacy task.
+
+## 1. Raw `.xtherm` files in the legacy pilot layout
 
 - Put original `.xtherm` files in **`data/raw_xtherm/`**.
 - Files may be organized into **per-dataset subfolders**, e.g.:
@@ -20,10 +53,9 @@ matrices from WeldStudio and feed those in.
   and reports, per subfolder, the file count and the first/last frame filenames,
   e.g. `dataset: 234 files` / `dataset: first=001027.xtherm, last=001260.xtherm`.
   A subfolder containing no `.xtherm` files is flagged with a NOTE.
-- These are kept as a **backup only**. The project never parses them directly
-  (`src/io/xtherm_reader.py` is interface-only). For actual processing you must
-  still export the temperature matrices from WeldStudio into
-  `data/exported/npy/` (e.g. `data/exported/npy/dataset.npy`) — see below.
+- In the legacy exported-matrix workflow, these files are retained as source
+  data while processing may proceed through `02b` or through exported matrices
+  under `data/exported/npy/` (e.g. `data/exported/npy/dataset.npy`) — see below.
 - **Never** delete, move, or modify anything under `data/raw_xtherm/`.
 
 ## 1b. Binary `.xtherm` → npy with script 02b (verified format)
@@ -45,15 +77,20 @@ CSV. The layout used by this project has been verified on real data:
 Convert all frames in one go:
 
 ```powershell
-python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
+python scripts/02b_convert_xtherm_binary_to_npy.py --format-config configs/xtherm_format.yaml --config configs/default.yaml
 ```
 
 This reads `xtherm_binary.input_dir` recursively (e.g.
 `data/raw_xtherm/dataset/`), sorts frames by filename, stacks them into
 `data/exported/npy/dataset.npy` (**N × H × W float32 Celsius**) and writes
-`dataset_meta.json` alongside. All parameters (width/height/header/dtype/
-endian/scale) live in `configs/default.yaml` under `xtherm_binary`. The raw
-`.xtherm` files are only read — never deleted, moved, or modified.
+`dataset_meta.json` alongside. The formal XTherm source is
+`configs/xtherm_format.yaml`, which defines the binary layout, image dimensions,
+temperature conversion, camera valid range, and conversion-QC thresholds.
+`configs/default.yaml` is legacy configuration only; it may supply historical
+pilot input/output paths for this legacy-compatible utility, but it is not used
+as the authoritative format source and is not part of the formal 57-track
+pipeline. The raw `.xtherm` files are only read — never deleted, moved, or
+modified.
 
 **Important:** because `02b` already applies `× 0.1`, its output is Celsius —
 keep `data.exported_is_celsius: true` so script `02` does not divide by 10
@@ -131,6 +168,9 @@ files first (the scripts never delete anything for you).
 
 ## 6. File naming convention
 
+This naming convention belongs to the legacy exported-matrix workflow, not the
+formal 57-track workflow.
+
 Name one file per experiment run, encoding the magnetic group and a run index:
 
 ```
@@ -142,6 +182,10 @@ The file stem (e.g. `B100_02`) becomes the `experiment_id` used throughout the
 pipeline (splitting, per-experiment metrics, magnetic grouping).
 
 ## 7. Magnetic-group naming
+
+These magnetic-group names belong to the legacy exported-matrix workflow. The
+formal 57-track workflow uses `C1`, `C2`, and `R1`-`R17` with magnetic-field
+levels 0, 60, and 120 mT from `configs/experiments.yaml`.
 
 | Prefix | Meaning |
 |--------|---------|
@@ -166,6 +210,9 @@ magnetic_field_groups:
 (Record full per-experiment metadata in `docs/metadata_template.md`.)
 
 ## 8. Full run (Windows PowerShell)
+
+This is the legacy LSTM-related full run. It is not the current formal
+57-track workflow.
 
 ```powershell
 conda activate pytorch

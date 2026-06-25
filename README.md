@@ -193,10 +193,10 @@ experiment design + physical metadata
   └─> 19-condition response-surface analysis      (planned)
 ```
 
-Track-level conversion and its per-track QC are handled by `scripts/02c_batch_convert_tracks.py`. A separate repository-tracked aggregate conversion-report script has not yet been finalized and is therefore not listed as part of the formal pipeline.
+Track-level conversion and its per-track QC are handled by `scripts/02c_batch_convert_tracks.py`. No independent aggregate conversion-report script is currently incorporated into the version-controlled formal pipeline.
 
 
-**Current formal entry points** (the only scripts to run now):
+**Current formal entry points** (already completed/evaluated; rerun only for an explicit task):
 
 Use any Python environment that satisfies `requirements.txt`. The existing `pytorch` conda
 environment may also be used, but Torch is not required for these three stages.
