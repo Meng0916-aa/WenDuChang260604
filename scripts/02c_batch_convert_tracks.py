@@ -10,10 +10,11 @@ Celsius matrix per track. Driven by the formal design + the local track list:
 
 The processing unit is ONE single track (e.g. R1_T1). T1/T2/T3 are NEVER
 concatenated. The verified parse algorithm is reused from
-``src/conversion/xtherm_binary.py`` (no second copy). The binary FORMAT
+``src/conversion/xtherm_binary.py`` (no second copy). The formal binary-format
 parameters (56-byte header, 640x512, little-endian uint16, scale 0.1) come from
-``configs/default.yaml`` -> ``xtherm_binary`` (the only verified format source);
-the legacy ``input_dir``/``output_npy`` (the ``dataset`` test set) are NOT used.
+``configs/xtherm_format.yaml`` through ``src/config/xtherm_format.py``. The
+legacy ``configs/default.yaml`` format block and its ``dataset`` paths are NOT
+used by this formal 57-track converter.
 
 READ-ONLY on raw data: source .xtherm files are only read, never written, moved,
 renamed or deleted. The early-test directory ``dataset`` is refused.
@@ -40,7 +41,7 @@ import numpy as np
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 
-from utils.config import load_config
+from config.xtherm_format import load_xtherm_format
 from conversion.xtherm_binary import (
     XthermSizeError,
     build_numpy_dtype,
@@ -58,25 +59,62 @@ FORBIDDEN_OUTPUT_NAMES = {"dataset"}  # never (re)create dataset.npy here
 # --------------------------------------------------------------------------
 
 def load_format(format_config_path):
-    """Return the verified binary format from configs (default.yaml -> xtherm_binary).
+    """Load the formal verified XTherm binary-format configuration.
 
-    Only scalar format fields are read; the legacy dataset paths are ignored.
+    The authoritative source is ``configs/xtherm_format.yaml``.  The returned
+    dictionary preserves the keys expected by the conversion and QC code while
+    keeping the camera measurement range, gross QC limit, and hard-saturation
+    threshold as separate concepts.
     """
-    cfg = load_config(format_config_path)
-    xb = cfg["xtherm_binary"]
+    cfg = load_xtherm_format(format_config_path)
+
     fmt = {
-        "width": int(xb["width"]),
-        "height": int(xb["height"]),
-        "header_bytes": int(xb["header_bytes"]),
-        "dtype": xb["dtype"],
-        "endian": xb["endian"],
-        "scale_factor": float(xb["scale_factor"]),
-        "valid_max": float(cfg["data"]["valid_range"][1]),
-        "zero_ratio_note_threshold": float(xb.get("zero_ratio_note_threshold", 0.05)),
+        "width": int(cfg.width_px),
+        "height": int(cfg.height_px),
+        "header_bytes": int(cfg.header_bytes),
+        "dtype": str(cfg.raw_dtype),
+        "endian": str(cfg.byte_order),
+        "scale_factor": float(cfg.scale_C_per_count),
+        "offset_C": float(cfg.offset_C),
+        "camera_valid_temperature_min_C": float(
+            cfg.camera_valid_temperature_min_C
+        ),
+        "camera_valid_temperature_max_C": float(
+            cfg.camera_valid_temperature_max_C
+        ),
+        "binary_qc_gross_upper_limit_C": float(
+            cfg.binary_qc_gross_upper_limit_C
+        ),
+        "hard_saturation_threshold_C": float(
+            cfg.hard_saturation_threshold_C
+        ),
+        "hard_saturation_value_C": float(
+            cfg.hard_saturation_value_C
+        ),
+        "zero_ratio_note_threshold": float(
+            getattr(cfg, "zero_ratio_note_threshold", 0.05)
+        ),
     }
+
+    # Backward-compatible QC alias.  This is a gross anomaly threshold, not
+    # the camera's valid quantitative temperature maximum.
+    fmt["valid_max"] = fmt["binary_qc_gross_upper_limit_C"]
+
     fmt["np_dtype"] = build_numpy_dtype(fmt["dtype"], fmt["endian"])
     fmt["expected_size"] = expected_frame_size(
-        fmt["width"], fmt["height"], fmt["header_bytes"], fmt["np_dtype"])
+        fmt["width"],
+        fmt["height"],
+        fmt["header_bytes"],
+        fmt["np_dtype"],
+    )
+
+    if fmt["expected_size"] != int(cfg.expected_file_size_bytes):
+        raise ValueError(
+            "XTherm format mismatch: computed frame size "
+            f"{fmt['expected_size']} != configured "
+            f"{cfg.expected_file_size_bytes}"
+        )
+
     return fmt
 
 
@@ -222,7 +260,23 @@ def convert_track(row, fmt, output_root, overwrite=False):
 
     Statuses: 'converted', 'skipped', 'fail'. Atomic tmp write; no partial
     official output is ever left behind. Raw files are only read.
+
+    ``fmt`` normally comes from :func:`load_format`. A few unit tests and
+    legacy callers construct a minimal format dictionary directly, so formal
+    metadata fields are filled with safe defaults here without changing the
+    verified binary parsing parameters.
     """
+    fmt = dict(fmt)
+    fmt.setdefault("offset_C", 0.0)
+    fmt.setdefault("camera_valid_temperature_min_C", 300.0)
+    fmt.setdefault("camera_valid_temperature_max_C", 1800.0)
+    fmt.setdefault(
+        "binary_qc_gross_upper_limit_C",
+        float(fmt.get("valid_max", 3000.0)),
+    )
+    fmt.setdefault("hard_saturation_threshold_C", 6500.0)
+    fmt.setdefault("hard_saturation_value_C", 6553.5)
+
     sample_id = row["sample_id"]
     if sample_id.lower() in FORBIDDEN_OUTPUT_NAMES:
         return _empty_meta(row, "fail", [f"forbidden sample_id: {sample_id}"], fmt)
@@ -336,7 +390,22 @@ def convert_track(row, fmt, output_root, overwrite=False):
         "output_shape": [len(files), H, W],
         "output_dtype": "float32",
         "temperature_unit": "Celsius",
+        "temperature_scale_C_per_count": fmt["scale_factor"],
         "temperature_scale": fmt["scale_factor"],
+        "temperature_offset_C": fmt["offset_C"],
+        "camera_valid_temperature_min_C": (
+            fmt["camera_valid_temperature_min_C"]
+        ),
+        "camera_valid_temperature_max_C": (
+            fmt["camera_valid_temperature_max_C"]
+        ),
+        "binary_qc_gross_upper_limit_C": (
+            fmt["binary_qc_gross_upper_limit_C"]
+        ),
+        "hard_saturation_threshold_C": (
+            fmt["hard_saturation_threshold_C"]
+        ),
+        "hard_saturation_value_C": fmt["hard_saturation_value_C"],
         "header_bytes": fmt["header_bytes"],
         "image_height": H,
         "image_width": W,
@@ -450,8 +519,15 @@ def dry_run(targets, fmt, output_root):
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--master-csv", default="data/metadata/experiment_master.csv")
-    p.add_argument("--format-config", default="configs/default.yaml",
-                   help="YAML with the verified xtherm_binary format block")
+    p.add_argument(
+        "--format-config",
+        default="configs/xtherm_format.yaml",
+        help=(
+            "Formal YAML configuration containing the verified XTherm "
+            "binary layout, image dimensions, temperature scaling, "
+            "measurement range, and QC thresholds"
+        ),
+    )
     p.add_argument("--sample-id", default=None)
     p.add_argument("--sample-ids", nargs="+", default=None)
     p.add_argument("--all", action="store_true")

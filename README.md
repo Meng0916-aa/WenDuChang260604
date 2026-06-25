@@ -8,13 +8,17 @@ and assess **cladding quality** under **with / without magnetic field** conditio
 
 > **Formal experiment design — single source of truth:** 19 conditions
 > (`C1`, `C2`, `R1`–`R17`), a 3-factor 3-level **Box–Behnken Design**, each with 3 repeated
-> single tracks `T1/T2/T3` → **57 independent temperature-field samples**. See
+> single tracks `T1/T2/T3` → **57 single-track temperature-field samples**. See
 > `docs/actual_experiment_plan.md` and the machine-readable `configs/experiments.yaml`.
-> Canonical raw data: `D:/WenDuChang-data-repo/raw_xtherm`.
+> The 57 tracks are independent processing units, but they are not 57 independent
+> plate-level replicates.
+> The formal raw-data root is resolved locally through the portable
+> path-resolution rules described below; no machine-specific absolute path
+> is stored in the repository.
 >
 > **Current phase (now): process parameters → single-track temperature-field features.**
 > ```
-> process parameters → 57 independent single-track temperature fields
+> process parameters → 57 single-track temperature fields
 >   → per-track thermal-field features (single track = processing unit)
 >   → per-condition aggregation over T1/T2/T3: mean / std / CV (condition = aggregation unit)
 >   → 19 condition-level thermal responses → response surface & magnetic-field effect
@@ -60,14 +64,34 @@ distance per frame (mm), scan duration (s).
 **Still required before formal feature extraction** (not run here): unified ROI confirmation,
 invalid-pixel masking, valid-range masking, final feature-definition review.
 
-**Unified ROI strategy — evaluated (read-only).** `scripts/03a_evaluate_roi_strategy.py` locates
-the main melt-pool hot region across all 57 tracks (`frames[1:]`, 700 °C envelope / 800 °C core,
-above-range & hard-saturation handled spatially without touching the raw data) and compares three
-analysis options. The legacy ROI (top=200,left=0,h=300,w=600) is **not** usable (700-envelope min
-coverage 99.71%); the recommended fixed global ROI is **(175,86)→(495,334) = 320×248 px** (100% core
-& envelope coverage), and the recommended strategy is **global ROI + a 192×208 px moving tracking
-window**. It writes tables + JSON + 12 QC figures under `results/` and **no ROI matrices**; formal
-ROI cropping waits for user confirmation. See `docs/roi_strategy_evaluation.md`.
+**Unified ROI strategy — evaluated (read-only).**
+
+`scripts/03a_evaluate_roi_strategy.py` locates the cleaned main melt-pool hot region across all 57 tracks using the effective frames `frames[1:]`, with a 700 °C envelope and an 800 °C core. Above-range and hard-saturation pixels are handled spatially without modifying the original temperature matrices.
+
+The legacy fixed ROI (`top=200`, `left=0`, `height=300`, `width=600`) is **not suitable**, because its minimum 700 °C envelope coverage is only 99.71%.
+
+The evaluated fixed global ROI uses the half-open array ranges `rows[175:495]` and `cols[86:334]`. Its dimensions are:
+
+* `global_roi_height_px = 320`
+* `global_roi_width_px = 248`
+
+This fixed global ROI provides 100% coverage of both the cleaned 700 °C envelope and the 800 °C core.
+
+The evaluated moving tracking window uses:
+
+* `tracking_window_width_px = 256`
+* `tracking_window_height_px = 216`
+* `tracking_window_width_mm ≈ 8.522`
+* `tracking_window_height_mm ≈ 7.190`
+
+The tracking window provides 100% coverage of both the cleaned 700 °C envelope and the 800 °C core, with zero clipped frames.
+
+The recommended strategy is therefore **a fixed global ROI plus a 256-px-wide × 216-px-high moving tracking window**. The global ROI preserves absolute position and trajectory information, while the tracking window supports local melt-pool morphology and temperature-field analysis.
+
+The evaluation writes tables, JSON summaries, and QC figures under `results/`, but generates **no formal ROI matrices**. Formal ROI generation and feature extraction remain disabled until the ROI strategy is explicitly finalized.
+
+See `docs/roi_strategy_evaluation.md`.
+
 
 ## Environment
 
@@ -115,10 +139,20 @@ The raw-data root is **not** hard-coded in the repo. It is resolved by priority:
 
 - **N** = number of frames, **H, W** = spatial dimensions.
 - The WeldStudio `.xtherm` export is a **binary temperature matrix** whose layout has been
-  verified empirically: `56-byte header + 640×512 little-endian uint16`, Celsius = raw / 10.
-  Script `02b_convert_xtherm_binary_to_npy.py` converts it to a stacked N × H × W `.npy`
-  (all parameters in `configs/default.yaml` → `xtherm_binary`). `src/io/xtherm_reader.py`
-  remains interface-only; exported `.npy` / `.csv` / `.h5` matrices are still accepted directly.
+  verified empirically: `56-byte header + 640×512 little-endian uint16`, with
+  `temperature_C = raw_count × 0.1`.
+- `scripts/02b_convert_xtherm_binary_to_npy.py` and
+  `scripts/02c_batch_convert_tracks.py` share the verified parser in
+  `src/conversion/xtherm_binary.py`; the formal 57-track workflow uses `02c`.
+- The historical `xtherm_binary` block in `configs/default.yaml` is retained only for
+  legacy path compatibility and is not authoritative.
+- `configs/xtherm_format.yaml` is the authoritative source for the verified binary layout,
+  temperature scaling, camera-valid temperature range, and conversion-QC thresholds.
+- `configs/physical_calibration.yaml` remains the authoritative source for spatial
+  calibration, imaging geometry, process metadata, and the physical interpretation used
+  during formal feature extraction.
+- `src/io/xtherm_reader.py` remains interface-only; exported `.npy`, `.csv`, and `.h5`
+  matrices are still accepted by the legacy conversion utility.
 
 Full details: `docs/data_format.md`.
 
@@ -147,31 +181,38 @@ The active pipeline entry of record is `configs/formal_pipeline.yaml`
 `configs/default.yaml` is **legacy** and is not used here. Full detail:
 `docs/formal_pipeline.md`.
 
-```
+```text
 experiment design + physical metadata
-  → 57 single-track .xtherm conversion          (scripts/02c_batch_convert_tracks.py)
-  → conversion QC                               (scripts/02c --qc → scripts/02d report)
-  → ROI strategy evaluation                     (scripts/03a_evaluate_roi_strategy.py)
-  → USER confirms fixed ROI / tracking window      [decision gate]
-  → formal ROI or analysis-window generation    (planned)
-  → 57 single-track temperature-field features  (planned)
-  → T1/T2/T3 in-plate repeat aggregation        (planned)
-  → 19-condition response-surface analysis      (planned)
+  ├─> 57 single-track .xtherm conversion         (scripts/02c_batch_convert_tracks.py)
+  ├─> per-track conversion QC                    (generated by scripts/02c_batch_convert_tracks.py)
+  ├─> ROI strategy evaluation                    (scripts/03a_evaluate_roi_strategy.py)
+  ├─> USER confirms fixed ROI / tracking window  [decision gate]
+  ├─> formal ROI or analysis-window generation   (planned)
+  ├─> 57 single-track temperature-field features (planned)
+  ├─> T1/T2/T3 in-plate repeat aggregation       (planned)
+  └─> 19-condition response-surface analysis      (planned)
 ```
+
+Track-level conversion and its per-track QC are handled by `scripts/02c_batch_convert_tracks.py`. A separate repository-tracked aggregate conversion-report script has not yet been finalized and is therefore not listed as part of the formal pipeline.
+
 
 **Current formal entry points** (the only scripts to run now):
 
+Use any Python environment that satisfies `requirements.txt`. The existing `pytorch` conda
+environment may also be used, but Torch is not required for these three stages.
+
 ```powershell
-conda activate pytorch
-$env:KMP_DUPLICATE_LIB_OK="TRUE"
+# Optional when using the existing project environment:
+# conda activate pytorch
+# $env:KMP_DUPLICATE_LIB_OK="TRUE"
 
 # 1. Build the per-track metadata map (local CSV; raw-data root resolved portably)
 python scripts/00_build_experiment_master.py
 
-# 2. Convert the 57 single tracks (read-only on raw .xtherm) + conversion QC
+# 2. Convert the 57 single tracks (read-only on raw .xtherm) and generate per-track QC
 python scripts/02c_batch_convert_tracks.py --master-csv data/metadata/experiment_master.csv --all --qc
 
-# 3. Evaluate ROI / tracking-window strategy (writes NO ROI matrices)
+# 3. Evaluate the fixed-ROI and tracking-window strategy (writes no ROI matrices)
 python scripts/03a_evaluate_roi_strategy.py
 ```
 
@@ -209,71 +250,108 @@ extraction · condition-level response-surface fitting · section-level quality-
 
 ## Pipeline Scripts
 
-| Script | Input | Output |
-|--------|-------|--------|
-| `01_check_raw_data.py` | data directories | console report (no `.xtherm` parsing) |
-| `02b_convert_xtherm_binary_to_npy.py` | `data/raw_xtherm/dataset/*.xtherm` (binary) | `data/exported/npy/dataset.npy` + `dataset_meta.json` (float32 °C) |
-| `02_convert_exported_to_npy.py` | `data/exported/{npy,csv,h5}` | `data/processed/matrix/*.npy` (float32 °C) |
-| `03_extract_roi.py` | `data/processed/matrix` | `data/processed/roi/*.npy` |
-| `03a_evaluate_roi_strategy.py` | `data/processed/matrix` (read-only) | ROI-strategy tables + JSON + QC figures under `results/` (NO ROI `.npy`) |
-| `04_extract_thermal_cycle.py` | `data/processed/roi` | `data/processed/thermal_cycle/*.csv` |
-| `05_build_window_dataset.py` | thermal-cycle CSVs (or SIMULATED) | `data/processed/samples/window_samples.npz` |
-| `06_train_model.py` | samples `.npz` | `best_lstm.pt`, `normalizer.npz`, `training_log.csv`, `used_config.yaml` |
-| `07_evaluate_model.py` | samples + checkpoint | `lstm_metrics.csv`, `lstm_predictions.csv`, (group metrics) |
-| `08_plot_results.py` | tables | figures (`.png` + `.pdf`) |
-| `09_analyze_temporal_features.py` | `data/processed/thermal_cycle` | `temporal_features.csv` + temporal feature figures |
-| `10_extract_thermal_field_features.py` | `data/processed/roi` | `thermal_field_features.csv` (one row/experiment) |
-| `11_build_ml_quality_dataset.py` | features + `quality_labels.csv` (local) | `ml_quality_dataset.csv` |
-| `12_train_ml_quality_model.py` | `ml_quality_dataset.csv` | `ml_quality_metrics.csv`, `ml_quality_predictions.csv`, `ml_feature_importance.csv` + figures |
-| `13_extract_local_section_features.py` | `section_plan.csv` (local) + `data/processed/roi` | `local_section_features.csv` (one row/section) |
-| `14_build_section_ml_dataset.py` | local features + `section_quality_labels.csv` (local) | `section_ml_dataset.csv` |
-| `15_train_section_quality_model.py` | `section_ml_dataset.csv` | `section_ml_{regression,classification}_{metrics,predictions}.csv`, `section_ml_feature_importance.csv` |
-| `16_plot_section_ml_results.py` | section ML tables | `results/figures/section_ml/*.png/.pdf` |
+Only scripts marked **Formal**, **Formal utility**, or **Formal evaluation** belong to the
+current 57-track thermal-field pipeline. Scripts marked **Legacy**, **Later-stage**, or
+**Future section-level stage** must not be run unless that workflow is explicitly activated.
+
+| Script | Input | Output | Status |
+|---|---|---|---|
+| `00_build_experiment_master.py` | `configs/experiments.yaml` and `configs/physical_calibration.yaml` | `data/metadata/experiment_master.csv` containing 57 formal single-track records | **Formal** |
+| `00b_build_metadata_audit.py` | Formal experiment, calibration, process, and plate metadata | Metadata audit tables under `results/tables/` | **Formal utility** |
+| `01_check_raw_data.py` | Legacy raw-data directories | Console integrity report without formal `.xtherm` parsing | **Legacy / optional** |
+| `02b_convert_xtherm_binary_to_npy.py` | A legacy or single-directory `.xtherm` dataset | One temperature-matrix `.npy` file and its metadata | **Legacy-compatible utility** |
+| `02c_batch_convert_tracks.py` | The 57 formal track directories defined by `experiment_master.csv` | 57 track-level temperature matrices, metadata files, and per-track conversion QC | **Formal** |
+| `02_convert_exported_to_npy.py` | `data/exported/{npy,csv,h5}` | `data/processed/matrix/*.npy` | **Legacy / optional** |
+| `03_extract_roi.py` | Historical pilot temperature matrices | Historical ROI matrices under `data/processed/roi/` | **Legacy / optional** |
+| `03a_evaluate_roi_strategy.py` | The 57 full-frame temperature matrices under `data/processed/matrix/` in read-only mode | ROI-strategy tables, JSON summaries, and QC figures under `results/`; no formal ROI matrices | **Formal evaluation** |
+| `04_extract_thermal_cycle.py` | Historical ROI matrices | Thermal-cycle CSV files under `data/processed/thermal_cycle/` | **Legacy / optional** |
+| `05_build_window_dataset.py` | Historical thermal-cycle CSV files or simulated data | `data/processed/samples/window_samples.npz` | **Legacy / optional** |
+| `06_train_model.py` | Historical window-sample dataset | LSTM model checkpoint, normalization data, and training log | **Legacy / optional** |
+| `07_evaluate_model.py` | Historical samples and trained checkpoint | LSTM metrics, predictions, and grouped evaluation results | **Legacy / optional** |
+| `08_plot_results.py` | Historical result tables | Historical result figures in PNG and PDF formats | **Legacy / optional** |
+| `09_analyze_temporal_features.py` | Historical thermal-cycle data | Temporal-feature tables and exploratory figures | **Legacy / optional** |
+| `10_extract_thermal_field_features.py` | Historical ROI matrices | Historical thermal-field feature table with one row per experiment | **Later-stage / not current** |
+| `11_build_ml_quality_dataset.py` | Thermal-field features and local `quality_labels.csv` | `ml_quality_dataset.csv` | **Later-stage / not current** |
+| `12_train_ml_quality_model.py` | `ml_quality_dataset.csv` | Quality-model metrics, predictions, feature importance, and figures | **Later-stage / not current** |
+| `13_extract_local_section_features.py` | Local `section_plan.csv` and temperature-field data | `local_section_features.csv` with one row per section | **Future section-level stage** |
+| `14_build_section_ml_dataset.py` | Local section features and `section_quality_labels.csv` | `section_ml_dataset.csv` | **Future section-level stage** |
+| `15_train_section_quality_model.py` | `section_ml_dataset.csv` | `section_ml_{regression,classification}_{metrics,predictions}.csv` and `section_ml_feature_importance.csv` | **Future section-level stage** |
+| `16_plot_section_ml_results.py` | Section-level machine-learning result tables | Figures under `results/figures/section_ml/` in PNG and PDF formats | **Future section-level stage** |
 
 ## Output Files
 
-```
-results/checkpoints/best_lstm.pt                       <- best model
-results/checkpoints/normalizer.npz                     <- train-set normalization stats
-results/logs/training_log.csv                          <- per-epoch train/val loss
-results/logs/used_config.yaml                          <- exact config used for the run
-results/tables/lstm_metrics.csv                        <- overall test metrics (Celsius)
-results/tables/lstm_predictions.csv                    <- per-sample/step predictions
-results/tables/lstm_metrics_by_experiment.csv          <- per-experiment metrics
-results/tables/lstm_metrics_by_magnetic_group.csv      <- per-group metrics (if grouping set)
-results/tables/temporal_features.csv                   <- temporal features per experiment (script 09)
-results/figures/*.png, *.pdf                           <- curves, metric charts, temporal figures
+### Current formal pipeline outputs
+
+```text
+data/metadata/experiment_master.csv                    <- local 57-row track metadata map
+data/processed/matrix/<sample_id>.npy                  <- full-frame float32 temperature matrix
+data/processed/matrix_meta/<sample_id>.json            <- per-track conversion metadata
+results/qc/conversion/<sample_id>/                     <- per-track conversion QC
+results/tables/<qc_summary>.csv                        <- conversion-QC summary selected by --qc-summary
+results/qc/roi/                                        <- ROI-strategy QC figures and JSON
+results/tables/roi_bbox_by_track.csv                   <- 57-track ROI geometry summary
+results/tables/roi_exception_list.csv                  <- ROI exceptions requiring review
+results/tables/roi_repeatability_summary.csv           <- 19-condition spatial repeatability
+results/tables/tracking_window_coverage_summary.csv    <- tracking-window coverage evaluation
 ```
 
-All metrics are computed on **inverse-normalized Celsius** values.
+The current default value of `--qc-summary` is
+`results/tables/pilot_conversion_qc.csv` for backward compatibility. Aggregate conversion
+exception and repeatability reports are not listed as repository-generated formal outputs
+until a tracked aggregate-report implementation is finalized.
+
+The formal ROI evaluation is read-only: **no formal ROI matrices and no formal feature table
+have been generated yet**. Files under `data/` and `results/` are local and git-ignored.
+
+### Legacy or later-stage outputs
+
+```text
+results/checkpoints/best_lstm.pt                       <- legacy optional LSTM model
+results/checkpoints/normalizer.npz                     <- legacy train-set normalization stats
+results/logs/training_log.csv                          <- legacy per-epoch train/validation loss
+results/logs/used_config.yaml                          <- exact legacy configuration used
+results/tables/lstm_metrics.csv                        <- legacy LSTM test metrics
+results/tables/lstm_predictions.csv                    <- legacy LSTM predictions
+results/tables/lstm_metrics_by_experiment.csv          <- legacy per-experiment metrics
+results/tables/lstm_metrics_by_magnetic_group.csv      <- legacy per-group metrics
+results/tables/temporal_features.csv                   <- legacy temporal features
+results/figures/*.png, *.pdf                           <- legacy or later-stage figures
+```
+
+Legacy model metrics are computed on inverse-normalized Celsius values. They are not part of
+the current 57-track formal analysis unless that workflow is explicitly activated.
 
 ## Tests
+
+The current formal metadata, XTherm conversion, conversion-QC, and ROI-evaluation stages do not require PyTorch. However, the complete repository test suite also includes legacy LSTM and window-dataset tests that import Torch. Therefore, run the complete test suite in the existing `pytorch` conda environment:
 
 ```powershell
 conda activate pytorch
 $env:KMP_DUPLICATE_LIB_OK="TRUE"
-python -m pytest tests
+python -m pytest tests -q
 ```
 
-If `pytest` is not installed (do **not** auto-install it), run each test directly, e.g.:
+The suite contains formal configuration, metadata, conversion, ROI-strategy, legacy-compatibility, and small synthetic-fixture tests. Synthetic inputs are used only for code validation and must never be interpreted as experimental results.
 
-```powershell
-python tests/test_temperature_scale.py
-python tests/test_window_dataset.py
-python tests/test_metrics.py
-python tests/test_normalize.py
-python tests/test_lstm_forward.py
-python tests/test_pipeline_smoke.py
-```
+Do not install PyTorch into the `base` environment, and do not add Torch back to `requirements.txt`.
 
-Tests use small **SIMULATED** data for code validation only.
 
 ## Key Rules
 
-1. **Never** delete, move, or modify `data/raw_xtherm/`.
-2. All processed temperature data is **float32 Celsius**, shape **N × H × W**.
-3. Train/val/test split by **experiment ID**, never by shuffling adjacent frames.
-4. Pseudo-color images are **not** quantitative — use raw temperature matrices only.
-5. All parameters come from a YAML config under `configs/`.
-6. All generated outputs land under `results/`.
-7. Run PyTorch only in the `pytorch` conda env; never `pip install torch`.
+1. **Never** delete, move, or modify the canonical raw `.xtherm` data.
+2. Full-frame processed temperature matrices remain **float32 Celsius**, shape **N × H × W**.
+3. `T1/T2/T3` are in-plate repeated single tracks; their raw frames are never concatenated.
+4. The first frame is a confirmed startup frame; formal effective frames are `frames[1:]`.
+5. Pseudo-color images are not quantitative; all calculations use raw temperature matrices.
+6. Formal experiment, calibration, path, and pipeline settings come from the formal YAML
+   configuration chain, not from the legacy `configs/default.yaml`.
+7. Camera-valid quantitative temperatures are 300–1800 °C. Above-range and hard-saturation
+   pixels are masked and reported without modifying raw or processed matrices.
+8. The fixed global ROI preserves absolute position; the moving tracking window supports
+   local melt-pool analysis and must not erase full-frame coordinates.
+9. Generated processed data belong under `data/processed/`; QC, tables, figures, logs, and
+   checkpoints belong under `results/`.
+10. Train/validation/test splitting for later machine-learning stages must be grouped by
+    experiment or plate, never by randomly shuffling adjacent frames.
+11. Run PyTorch only in a separately managed compatible environment; never install it through
+    `requirements.txt`.

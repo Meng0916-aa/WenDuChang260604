@@ -47,7 +47,14 @@ paths:
 
 # --- Data ---
 data:
-  temperature_scale: 0.1      # raw_value -> Celsius: T = raw * scale
+  authoritative: false
+  formal_temperature_sources:
+    binary_format: configs/xtherm_format.yaml
+    temperature_scaling: configs/xtherm_format.yaml
+    measurement_range: configs/xtherm_format.yaml
+    conversion_qc_thresholds: configs/xtherm_format.yaml
+    physical_calibration: configs/physical_calibration.yaml
+  temperature_scale: 0.1      # LEGACY mirror; formal value lives in xtherm_format.yaml
   unit: "Celsius"
   dtype: "float32"
   shape_format: "NCHW"        # N = frames, H = height, W = width
@@ -83,16 +90,22 @@ data:
 #   little-endian uint16; T_celsius = raw / 10. Big-endian reads give ~6500 C
 #   on the first frame -> wrong, do NOT use big-endian.
 xtherm_binary:
-  # LEGACY early-test 'dataset' entry. not_active_for_formal_processing — the
-  # formal pipeline converts per-track via scripts/02c (never this dataset path).
-  # Only the scalar FORMAT fields (width/height/header_bytes/dtype/endian/scale)
-  # are reused by 02c; the dataset input/output paths below are legacy only.
+  # LEGACY early-test 'dataset' entry. This block is retained only for the
+  # historical 02b input/output paths and legacy reproducibility.
+  #
+  # IMPORTANT: scripts/02b and 02c now load all authoritative binary-format,
+  # scaling, measurement-range, and QC values from configs/xtherm_format.yaml.
+  # The mirrored scalar values below are NOT read by the formal 57-track path.
   formal_processing_enabled: false
+  authoritative: false
   status: legacy_dataset_not_approved
+  formal_format_source: configs/xtherm_format.yaml
   input_dir: "data/raw_xtherm/dataset"
   output_npy: "data/exported/npy/dataset.npy"
   output_meta: "data/exported/npy/dataset_meta.json"
   sample_id: "dataset"
+
+  # Non-authoritative legacy mirrors kept for old tests/scripts only.
   width: 640
   height: 512
   header_bytes: 56
@@ -244,6 +257,8 @@ visualization:
 # Extracts time-series features from thermal-cycle curves (output of script 04)
 # for Chapter-3 analysis. Independent of the dataset/training frame settings.
 temporal_analysis:
+  authoritative: false
+  formal_frame_rate_source: configs/physical_calibration.yaml
   # Formal confirmed frame rate is 52 fps (configs/physical_calibration.yaml ->
   # acquisition.frame_rate_fps). The earlier 1000 fps was an incorrect_legacy_value
   # and has been retired; do NOT reintroduce 1000 as an active value.
@@ -266,9 +281,14 @@ temporal_analysis:
 # Per-experiment aggregation (NOT per-frame) avoids data leakage on small,
 # highly-correlated frame sequences.
 thermal_field_features:
-  high_temp_threshold: 800.0    # Celsius; melt-pool / high-temperature zone
-  haz_threshold: 700.0          # Celsius; heat-affected-zone boundary
-  pixel_size_mm: 0.03128           # LEGACY pilot value (95.9 px = 3 mm).
+  authoritative: false
+  status: legacy_pilot
+  formal_calibration_source: configs/physical_calibration.yaml
+  planned_formal_roi_source: configs/roi_strategy.yaml
+  formal_roi_status: not_yet_created
+  high_temp_threshold: 800.0
+  haz_threshold: 700.0
+  pixel_size_mm: 0.03128
                                    # not_active_for_formal_processing. Formal processing reads the
                                    # pixel size from configs/physical_calibration.yaml
                                    # (150.2 px = 5 mm -> 0.0332889481 mm/px, axis=y). Kept only so the

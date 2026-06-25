@@ -1,129 +1,310 @@
 """
 02b_convert_xtherm_binary_to_npy.py
 
-Convert binary .xtherm files (WeldStudio temperature-matrix export) into a
-single stacked N x H x W float32 Celsius .npy plus a JSON metadata file.
+Legacy-compatible single-directory conversion of binary WeldStudio ``.xtherm``
+frames into one stacked ``N x H x W`` float32 Celsius matrix plus JSON metadata.
 
-The binary layout was verified empirically on real exports (2026-06):
-  file size = header_bytes + width * height * 2   (655416 = 56 + 640*512*2)
-  payload   = little-endian uint16 raw counts; T_celsius = raw * 0.1
-  (big-endian reads give ~6500 C on the first frame -> wrong)
+The verified parser is shared with the formal 57-track converter through
+``src/conversion/xtherm_binary.py``. Binary layout, image dimensions,
+temperature scaling, camera-valid range, and QC thresholds are loaded from the
+authoritative ``configs/xtherm_format.yaml``.
 
-All format parameters come from the `xtherm_binary` section of the YAML
-config. This script is READ-ONLY with respect to data/raw_xtherm: it never
-deletes, moves, or modifies any original .xtherm file.
+``configs/default.yaml`` is optional and legacy-only here: it supplies the
+historical pilot input/output paths when explicit CLI paths are not provided.
+Its duplicated binary-format values are ignored.
 
-Output (local only, never committed to git):
-  data/exported/npy/dataset.npy        N x H x W float32 Celsius
-  data/exported/npy/dataset_meta.json  conversion metadata
+Examples:
 
-Usage:
-    python scripts/02b_convert_xtherm_binary_to_npy.py --config configs/default.yaml
+    python scripts/02b_convert_xtherm_binary_to_npy.py
+    python scripts/02b_convert_xtherm_binary_to_npy.py ^
+        --input-dir data/raw_xtherm/example ^
+        --output-npy data/exported/npy/example.npy ^
+        --output-meta data/exported/npy/example_meta.json ^
+        --sample-id example
 
-NOTE: the output is already Celsius, so `data.exported_is_celsius` must be
-true before running script 02 on it (otherwise 02 divides by 10 again).
+This script is read-only with respect to source ``.xtherm`` files.
 """
 
+from __future__ import annotations
+
+import argparse
+import json
 import os
 import sys
-import glob
-import json
-import argparse
+from pathlib import Path
 
 import numpy as np
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_ROOT, "src"))
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT / "src"))
 
-from utils.config import load_config
-
-# Single source of truth for the verified .xtherm parse algorithm. These names
-# are re-exported so existing callers/tests of this script keep working while the
-# actual implementation lives in one place (shared with scripts/02c).
-from conversion.xtherm_binary import (  # noqa: F401  (re-export)
+from config.xtherm_format import load_xtherm_format
+from conversion.xtherm_binary import (  # noqa: F401 - compatibility re-export
     XthermSizeError,
     build_numpy_dtype,
+    convert_xtherm_dir,
     list_xtherm_files,
     read_xtherm_frame,
-    convert_xtherm_dir,
 )
+from utils.config import load_config
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
-    args = parser.parse_args()
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--format-config",
+        default="configs/xtherm_format.yaml",
+        help="Authoritative formal XTherm binary-format YAML.",
+    )
+    parser.add_argument(
+        "--config",
+        dest="legacy_config",
+        default="configs/default.yaml",
+        help=(
+            "Optional legacy YAML used only for historical input/output paths. "
+            "Its binary-format values are ignored."
+        ),
+    )
+    parser.add_argument("--input-dir", default=None)
+    parser.add_argument("--output-npy", default=None)
+    parser.add_argument("--output-meta", default=None)
+    parser.add_argument("--sample-id", default=None)
+    return parser.parse_args(argv)
 
-    config = load_config(args.config)
-    xb = config["xtherm_binary"]
-    valid_max = float(config["data"]["valid_range"][1])
-    zero_note_threshold = float(xb["zero_ratio_note_threshold"])
 
-    print("[02b] Binary .xtherm -> npy conversion "
-          "(read-only on raw files; format from configs)")
-    print("-" * 60)
+def _resolve_repo_path(value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else _ROOT / path
 
-    data, files = convert_xtherm_dir(xb)
-    first_file = os.path.basename(files[0])
-    last_file = os.path.basename(files[-1])
 
-    t_min = float(data.min())
-    t_max = float(data.max())
-    t_mean = float(data.mean())
-    zero_ratio = float(np.count_nonzero(data == 0.0) / data.size)
-
-    out_npy = xb["output_npy"]
-    out_meta = xb["output_meta"]
-    os.makedirs(os.path.dirname(out_npy), exist_ok=True)
-    os.makedirs(os.path.dirname(out_meta), exist_ok=True)
-    np.save(out_npy, data)
-
-    meta = {
-        "sample_id": xb["sample_id"],
-        "source_dir": xb["input_dir"],
-        "frame_count": len(files),
-        "first_file": first_file,
-        "last_file": last_file,
-        "width": int(xb["width"]),
-        "height": int(xb["height"]),
-        "header_bytes": int(xb["header_bytes"]),
-        "dtype": xb["dtype"],
-        "endian": xb["endian"],
-        "scale_factor": float(xb["scale_factor"]),
-        "output_shape": list(data.shape),
-        "unit": "Celsius",
-        "min_temperature": t_min,
-        "max_temperature": t_max,
-        "mean_temperature": t_mean,
-        "zero_pixel_ratio": zero_ratio,
-        "created_by": "scripts/02b_convert_xtherm_binary_to_npy.py",
+def _load_legacy_paths(path: str | None) -> dict:
+    """Read legacy pilot paths only; never use its duplicated format fields."""
+    if path is None:
+        return {}
+    config_path = _resolve_repo_path(path)
+    if not config_path.is_file():
+        return {}
+    config = load_config(str(config_path))
+    block = config.get("xtherm_binary", {})
+    return {
+        "input_dir": block.get("input_dir"),
+        "output_npy": block.get("output_npy"),
+        "output_meta": block.get("output_meta"),
+        "sample_id": block.get("sample_id"),
     }
-    with open(out_meta, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
 
-    print(f"[02b] loaded frames    : {len(files)}")
-    print(f"[02b] first filename   : {first_file}")
-    print(f"[02b] last filename    : {last_file}")
-    print(f"[02b] output shape     : {data.shape} (N x H x W, float32 Celsius)")
-    print(f"[02b] min/max/mean temp: {t_min:.1f} / {t_max:.1f} / {t_mean:.2f} C")
-    print(f"[02b] zero pixel ratio : {zero_ratio:.4f}")
-    print(f"[02b] output_npy       : {out_npy}")
-    print(f"[02b] output_meta      : {out_meta}")
 
-    if t_max > valid_max:
-        print(f"[02b] WARNING: max temperature {t_max:.1f} C exceeds "
-              f"{valid_max:.0f} C - check dtype/endian/scale_factor settings.")
-    if zero_ratio > zero_note_threshold:
-        print(f"[02b] NOTE: zero pixel ratio {zero_ratio:.4f} > "
-              f"{zero_note_threshold} - edge zeros are likely invalid pixels "
-              f"or background; not treated as an error.")
+def _require_value(name: str, explicit, fallback):
+    value = explicit if explicit is not None else fallback
+    if value in (None, ""):
+        raise ValueError(
+            f"{name} is required. Provide it explicitly or define the "
+            "legacy path in configs/default.yaml."
+        )
+    return value
 
-    print("-" * 60)
-    print("[02b] Raw .xtherm files were only READ - never deleted, moved, "
-          "or modified.")
-    print("[02b] Output is ALREADY Celsius: keep data.exported_is_celsius "
-          "true so script 02 does not divide by 10 again.")
+
+def _atomic_save_npy(path: Path, data: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(str(path) + ".tmp")
+    try:
+        with temporary.open("wb") as stream:
+            np.save(stream, data)
+        reloaded = np.load(temporary, mmap_mode="r")
+        if reloaded.shape != data.shape or reloaded.dtype != np.float32:
+            raise ValueError("Temporary NPY verification failed.")
+        del reloaded
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(str(path) + ".tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    formal = load_xtherm_format(_resolve_repo_path(args.format_config))
+    legacy_paths = _load_legacy_paths(args.legacy_config)
+
+    input_dir = _resolve_repo_path(
+        _require_value(
+            "--input-dir",
+            args.input_dir,
+            legacy_paths.get("input_dir"),
+        )
+    )
+    output_npy = _resolve_repo_path(
+        _require_value(
+            "--output-npy",
+            args.output_npy,
+            legacy_paths.get("output_npy"),
+        )
+    )
+    output_meta = _resolve_repo_path(
+        _require_value(
+            "--output-meta",
+            args.output_meta,
+            legacy_paths.get("output_meta"),
+        )
+    )
+    sample_id = str(
+        _require_value(
+            "--sample-id",
+            args.sample_id,
+            legacy_paths.get("sample_id"),
+        )
+    )
+
+    print(
+        "[02b] Binary .xtherm -> NPY conversion "
+        "(formal format config; source files read-only)"
+    )
+    print("-" * 72)
+
+    data, files = convert_xtherm_dir(
+        input_dir,
+        width=formal.width_px,
+        height=formal.height_px,
+        header_bytes=formal.header_bytes,
+        dtype_name=formal.raw_dtype,
+        endian=formal.byte_order,
+        scale_factor=formal.scale_C_per_count,
+        offset_C=formal.offset_C,
+        recursive=True,
+    )
+
+    finite = data[np.isfinite(data)]
+    t_min = float(finite.min()) if finite.size else float("nan")
+    t_max = float(finite.max()) if finite.size else float("nan")
+    t_mean = float(finite.mean()) if finite.size else float("nan")
+    zero_ratio = float(np.count_nonzero(data == 0.0) / data.size)
+    above_range_count = int(
+        np.count_nonzero(
+            (data > formal.camera_valid_temperature_max_C)
+            & (data < formal.hard_saturation_threshold_C)
+        )
+    )
+    hard_saturation_count = int(
+        np.count_nonzero(data >= formal.hard_saturation_threshold_C)
+    )
+
+    _atomic_save_npy(output_npy, data)
+
+    metadata = {
+        "sample_id": sample_id,
+        "source_dir": str(input_dir),
+        "frame_count": len(files),
+        "first_file": Path(files[0]).name,
+        "last_file": Path(files[-1]).name,
+        "width_px": formal.width_px,
+        "height_px": formal.height_px,
+        "header_bytes": formal.header_bytes,
+        "raw_dtype": formal.raw_dtype,
+        "byte_order": formal.byte_order,
+        "scale_C_per_count": formal.scale_C_per_count,
+        "offset_C": formal.offset_C,
+        "expected_file_size_bytes": formal.expected_file_size_bytes,
+        "camera_valid_temperature_min_C": (
+            formal.camera_valid_temperature_min_C
+        ),
+        "camera_valid_temperature_max_C": (
+            formal.camera_valid_temperature_max_C
+        ),
+        "binary_qc_gross_upper_limit_C": (
+            formal.binary_qc_gross_upper_limit_C
+        ),
+        "hard_saturation_threshold_C": (
+            formal.hard_saturation_threshold_C
+        ),
+        "hard_saturation_value_C": formal.hard_saturation_value_C,
+        "output_file": str(output_npy),
+        "output_shape": list(data.shape),
+        "output_dtype": "float32",
+        "unit": "Celsius",
+        "minimum_temperature_C": t_min,
+        "maximum_temperature_C": t_max,
+        "mean_temperature_C": t_mean,
+        "zero_pixel_ratio": zero_ratio,
+        "above_range_pixel_count": above_range_count,
+        "hard_saturation_pixel_count": hard_saturation_count,
+        "created_by": "scripts/02b_convert_xtherm_binary_to_npy.py",
+        "formal_format_config": str(
+            _resolve_repo_path(args.format_config)
+        ),
+        "legacy_path_config": (
+            str(_resolve_repo_path(args.legacy_config))
+            if args.legacy_config
+            else None
+        ),
+    }
+    _atomic_write_json(output_meta, metadata)
+
+    print(f"[02b] loaded frames     : {len(files)}")
+    print(f"[02b] first filename    : {metadata['first_file']}")
+    print(f"[02b] last filename     : {metadata['last_file']}")
+    print(
+        f"[02b] output shape      : {data.shape} "
+        "(N x H x W, float32 Celsius)"
+    )
+    print(
+        "[02b] min/max/mean temp : "
+        f"{t_min:.1f} / {t_max:.1f} / {t_mean:.2f} C"
+    )
+    print(f"[02b] zero pixel ratio  : {zero_ratio:.6f}")
+    print(f"[02b] above-range pixels: {above_range_count}")
+    print(f"[02b] hard-sat. pixels  : {hard_saturation_count}")
+    print(f"[02b] output_npy        : {output_npy}")
+    print(f"[02b] output_meta       : {output_meta}")
+
+    if t_max > formal.camera_valid_temperature_max_C:
+        print(
+            "[02b] NOTE: one or more pixels exceed the camera-valid "
+            f"quantitative maximum of "
+            f"{formal.camera_valid_temperature_max_C:.0f} C. "
+            "They are reported as above-range, not interpreted as true "
+            "temperatures."
+        )
+    if t_max > formal.binary_qc_gross_upper_limit_C:
+        print(
+            "[02b] WARNING: maximum temperature exceeds the gross binary-QC "
+            f"limit of {formal.binary_qc_gross_upper_limit_C:.0f} C."
+        )
+    if hard_saturation_count:
+        print(
+            "[02b] WARNING: hard-saturation pixels were detected at or above "
+            f"{formal.hard_saturation_threshold_C:.0f} C."
+        )
+    if zero_ratio > formal.zero_ratio_note_threshold:
+        print(
+            f"[02b] NOTE: zero pixel ratio {zero_ratio:.6f} exceeds "
+            f"{formal.zero_ratio_note_threshold:.3f}; edge zeros may be "
+            "invalid pixels or background."
+        )
+
+    print("-" * 72)
+    print(
+        "[02b] Raw .xtherm files were only read and were never modified, "
+        "moved, renamed, or deleted."
+    )
+    print(
+        "[02b] Output is already Celsius. Do not apply the raw-count scale "
+        "again in downstream legacy conversion."
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

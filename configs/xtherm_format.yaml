@@ -1,0 +1,37 @@
+schema_version: 1
+
+format:
+  name: xiris_xtherm_binary
+  status: verified_for_formal_processing
+
+image:
+  width_px: 640
+  height_px: 512
+
+binary:
+  header_bytes: 56
+  raw_dtype: uint16
+  byte_order: little
+  scale_C_per_count: 0.1
+  offset_C: 0.0
+
+file_validation:
+  expected_file_size_bytes: 655416
+  filename_extension: ".xtherm"
+  require_continuous_numeric_sequence: true
+  exclude_filenames:
+    - session.xml
+
+temperature_qc:
+  camera_valid_temperature_min_C: 300.0
+  camera_valid_temperature_max_C: 1800.0
+
+  # Gross conversion-QC threshold only. This is NOT the camera's valid
+  # quantitative temperature maximum.
+  binary_qc_gross_upper_limit_C: 3000.0
+
+  hard_saturation_threshold_C: 6500.0
+  hard_saturation_value_C: 6553.5
+
+  # A high fraction of exact zeros is reported as a note, not a parser error.
+  zero_ratio_note_threshold: 0.05
