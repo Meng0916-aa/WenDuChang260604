@@ -12,12 +12,15 @@ Baseline commit: `6ab3a19`
 - Formal XTherm format migration is complete.
 - 57 full-frame matrices exist.
 - Conversion QC is complete.
+- Formal ROI machine-readable configuration is established in
+  `configs/roi_strategy.yaml`.
 - Full test suite baseline: 233 passed in the `pytorch` conda environment.
 - 57-track conversion dry-run passed.
 
 ## Evaluated But Not Enabled
 
 - ROI strategy evaluation is complete.
+- ROI strategy status: evaluated but not activated.
 - Fixed global ROI: rows `[175:495]`, cols `[86:334]`.
 - Recommended moving tracking window: 256 x 216 px.
 - Recommended strategy: `global_roi_plus_tracking_window`.

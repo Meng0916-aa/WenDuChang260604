@@ -109,6 +109,18 @@ here (no edge-touch, no manual-review samples). Original centroid positions are
 always preserved separately — the tracking window must not hide real position
 offset.
 
+## Machine-readable record
+
+The accepted evaluation result is recorded in `configs/roi_strategy.yaml` as the
+formal ROI-strategy configuration. This config is the machine-readable authority
+for the evaluated parameters, but its activation status is
+`evaluated_not_activated`; formal ROI generation and formal feature extraction
+remain disabled. The local JSON under `results/qc/roi/` is provenance only and
+is not required for configuration loading.
+
+The earlier **192×208 px** tracking window remains a legacy/rejected candidate,
+not approved for formal processing.
+
 ## Outputs (LOCAL only, not committed)
 
 - `results/tables/roi_bbox_by_track.csv` (57 rows)

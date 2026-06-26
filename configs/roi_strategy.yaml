@@ -1,0 +1,93 @@
+schema_version: 1
+
+status:
+  role: formal_roi_strategy
+  strategy_name: global_roi_plus_tracking_window
+  evaluation_status: completed
+  activation_status: evaluated_not_activated
+  formal_roi_generation_enabled: false
+  formal_feature_extraction_enabled: false
+
+sources:
+  evaluation_script: scripts/03a_evaluate_roi_strategy.py
+  evaluation_document: docs/roi_strategy_evaluation.md
+  evaluation_summary_local_artifact: results/qc/roi/roi_strategy_summary.json
+  required_for_config_loading: false
+  xtherm_format_config: configs/xtherm_format.yaml
+  physical_calibration_config: configs/physical_calibration.yaml
+
+effective_frames:
+  startup_frames_excluded: 1
+  start_index_0_based: 1
+  python_slice: "frames[1:]"
+
+thresholds_C:
+  envelope: 700.0
+  core: 800.0
+
+coordinate_system:
+  source_image_height_px: 512
+  source_image_width_px: 640
+  convention: half_open_python
+  reference_frame: full_frame_array
+
+pixel_size:
+  source: configs/physical_calibration.yaml
+  pixel_size_x_mm: 0.0332889481
+  pixel_size_y_mm: 0.0332889481
+  isotropic_scaling_assumed: true
+
+fixed_global_roi:
+  row_start: 175
+  row_stop: 495
+  col_start: 86
+  col_stop: 334
+  height_px: 320
+  width_px: 248
+  coverage:
+    envelope_700_fraction: 1.0
+    core_800_fraction: 1.0
+  evaluation_accepted: true
+  formal_use_enabled: false
+  purpose:
+    - absolute_position
+    - trajectory
+    - global_spatial_information
+
+tracking_window:
+  method: extent_based_placement_aware
+  width_px: 256
+  height_px: 216
+  width_mm: 8.5219707136
+  height_mm: 7.1904127896
+  coverage:
+    envelope_700_fraction: 1.0
+    core_800_fraction: 1.0
+  clipped_frame_count: 0
+  edge_adjusted_frame_count: 0
+  evaluation_accepted: true
+  formal_use_enabled: false
+  purpose:
+    - local_temperature_statistics
+    - melt_pool_morphology
+    - temperature_gradient
+    - center_offset
+    - asymmetry
+
+legacy_candidates:
+  fixed_roi:
+    top: 200
+    left: 0
+    height: 300
+    width: 600
+    minimum_envelope_700_coverage_fraction: 0.9971
+    evaluation_accepted: false
+    formal_use_enabled: false
+    rejection_reason: clips_700_envelope
+
+  tracking_window:
+    width_px: 192
+    height_px: 208
+    evaluation_accepted: false
+    formal_use_enabled: false
+    rejection_reason: clipped_frames

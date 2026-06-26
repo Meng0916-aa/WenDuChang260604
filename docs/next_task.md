@@ -1,21 +1,19 @@
 # Next Task
 
-The next task is to create and validate a machine-readable formal ROI strategy
-configuration while keeping ROI generation and formal feature extraction closed.
+The next task is to design the formal temperature-field feature dictionary and
+extraction contract, without running feature extraction or generating data.
 
-## Expected New Files
+## Scope
 
-- `configs/roi_strategy.yaml`
-- `src/config/roi_strategy.py`
-- `tests/test_roi_strategy_config.py`
-
-## Expected Updated Files
-
-- `README.md`
-- `configs/formal_pipeline.yaml`
-- `configs/default.yaml`
-- `docs/roi_strategy_evaluation.md`
-- `docs/formal_pipeline.md`
+- Feature names.
+- Mathematical definitions.
+- Units.
+- Calculation region.
+- Time aggregation method.
+- Invalid-pixel handling.
+- Feature split between the fixed global ROI and the tracking window.
+- T1/T2/T3 aggregation rules.
+- Output table structure.
 
 ## Explicitly Forbidden In The Next Task
 
@@ -29,5 +27,5 @@ configuration while keeping ROI generation and formal feature extraction closed.
 - Touch `项目进展与下一步数据提取说明.docx`.
 - Commit or push.
 
-The task must stop if repository evidence conflicts with the planned ROI
-configuration.
+The task must stop if repository evidence conflicts with the planned feature
+contract.

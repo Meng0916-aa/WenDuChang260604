@@ -206,3 +206,16 @@ Reason: The condition is the statistical aggregation unit.
 Status: Active.
 
 Impact files or stage: Feature aggregation and response-surface analysis.
+
+### Decision 20
+
+Decision: `configs/roi_strategy.yaml` is the machine-readable authoritative
+record for the formal ROI strategy.
+
+Reason: Future code must not infer formal ROI parameters from `results/`, local
+JSON files, or prose documentation.
+
+Status: accepted_but_not_activated.
+
+Impact files or stage: Future ROI generation and feature extraction must read
+from this config; current execution gates remain closed.

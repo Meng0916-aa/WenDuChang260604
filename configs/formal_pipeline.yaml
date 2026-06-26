@@ -33,7 +33,9 @@ processing:
   formal_feature_extraction_enabled: false  # NOT yet
 
 roi_strategy:
-  status: evaluated_not_finalized
+  strategy_config: configs/roi_strategy.yaml
+  status: evaluated_not_activated
+  generate_formal_roi_matrices: false
   evaluation_summary: results/qc/roi/roi_strategy_summary.json
   evaluation_doc: docs/roi_strategy_evaluation.md
 

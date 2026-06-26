@@ -284,8 +284,10 @@ thermal_field_features:
   authoritative: false
   status: legacy_pilot
   formal_calibration_source: configs/physical_calibration.yaml
+  # Machine-readable formal ROI strategy lives in configs/roi_strategy.yaml.
+  # This legacy block is not a formal ROI source and remains disabled.
   planned_formal_roi_source: configs/roi_strategy.yaml
-  formal_roi_status: not_yet_created
+  formal_roi_status: evaluated_not_activated
   high_temp_threshold: 800.0
   haz_threshold: 700.0
   pixel_size_mm: 0.03128
