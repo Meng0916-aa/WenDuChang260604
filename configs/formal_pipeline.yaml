@@ -39,6 +39,12 @@ roi_strategy:
   evaluation_summary: results/qc/roi/roi_strategy_summary.json
   evaluation_doc: docs/roi_strategy_evaluation.md
 
+thermal_feature_contract:
+  contract_config: configs/thermal_feature_contract.yaml
+  status: designed_not_executed
+  feature_dictionary_doc: docs/formal_feature_dictionary.md
+  formal_feature_extraction_enabled: false
+
 # Configuration that must NOT be used for formal 57-track processing.
 forbidden_for_formal:
   - configs/default.yaml          # legacy_pilot (config_status.formal_processing_enabled=false)

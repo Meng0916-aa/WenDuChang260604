@@ -14,6 +14,9 @@ Baseline commit: `6ab3a19`
 - Conversion QC is complete.
 - Formal ROI machine-readable configuration is established in
   `configs/roi_strategy.yaml`.
+- Formal thermal-feature dictionary and machine-readable contract are
+  established in `docs/formal_feature_dictionary.md` and
+  `configs/thermal_feature_contract.yaml`.
 - Full test suite baseline: 233 passed in the `pytorch` conda environment.
 - 57-track conversion dry-run passed.
 
@@ -26,6 +29,7 @@ Baseline commit: `6ab3a19`
 - Recommended strategy: `global_roi_plus_tracking_window`.
 - Formal ROI generation remains closed.
 - Formal feature extraction remains closed.
+- Formal feature contract status: designed but not executed.
 
 ## Not Started
 

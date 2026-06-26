@@ -1,0 +1,507 @@
+schema_version: 1
+
+status:
+  role: formal_thermal_feature_contract
+  design_status: approved
+  execution_status: designed_not_executed
+  formal_feature_extraction_enabled: false
+  formal_roi_generation_enabled: false
+
+sources:
+  formal_pipeline_config: configs/formal_pipeline.yaml
+  roi_strategy_config: configs/roi_strategy.yaml
+  physical_calibration_config: configs/physical_calibration.yaml
+  xtherm_format_config: configs/xtherm_format.yaml
+  feature_dictionary_document: docs/formal_feature_dictionary.md
+
+frame_definitions:
+  effective_frame:
+    definition: any frame in frames[1:]
+    python_slice: "frames[1:]"
+    startup_frames_excluded: 1
+  active_700_frame:
+    definition: effective frame with a non-empty cleaned main 700 C region
+  active_800_frame:
+    definition: effective frame with a non-empty cleaned main 800 C region
+  aggregation_rules:
+    qc_frame_population: all_effective_frames
+    temperature_geometry_gradient_asymmetry_population: active_700_frames
+    area_800_population: active_700_frames_with_empty_800_as_zero
+    hot_core_presence_duration_formula: active_800_frame_count / 52.0
+    extra_start_or_end_frame_exclusion_enabled: false
+
+temperature_validity:
+  apparent_temperature_only: true
+  valid_min_C: 300.0
+  valid_max_C: 1800.0
+  above_range_min_C: 1800.0
+  above_range_max_C: 6500.0
+  hard_saturation_min_C: 6500.0
+  nonfinite_policy: mask_and_report
+  invalid_pixel_interpolation_enabled: false
+  above_range_quantitative_use_enabled: false
+  hard_saturation_quantitative_use_enabled: false
+
+geometry_mask_policy:
+  main_region_thresholds_C:
+    envelope: 700.0
+    core: 800.0
+  connectivity: 8
+  min_component_area_px: 9
+  include_above_or_hard_only_if_connected_to_valid_hot_region: true
+  isolated_saturation_can_form_main_region: false
+  area_rule: pixel_count_times_pixel_area
+  width_rule: "(max_col - min_col + 1) * pixel_size_x_mm"
+  scan_length_rule: "(max_row - min_row + 1) * pixel_size_y_mm"
+
+coordinate_convention:
+  source: configs/physical_calibration.yaml
+  array_origin: top_left
+  scan_axis: y
+  transverse_axis: x
+  image_scan_direction: upward
+  physical_to_array_y_sign: -1
+  x_mm: col * pixel_size_x_mm
+  y_mm: -row * pixel_size_y_mm
+  transverse_positive_direction: increasing_column_index
+  physical_left_right_calibrated: false
+
+feature_naming_rules:
+  style: snake_case
+  suffixes:
+    count: _count
+    fraction: _fraction
+    C: _C
+    mm2: _mm2
+    mm: _mm
+    s: _s
+    C_per_mm: _C_per_mm
+    C_per_s: _C_per_s
+    mm_per_s: _mm_per_s
+    cv: _cv
+
+core_features:
+  - name: mean_active_frame_valid_temperature_C
+    role: core
+    physical_meaning: Time-weighted mean apparent camera-valid temperature in the local melt-pool window.
+    unit: C
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Mean of 300-1800 C pixels in the tracking window for each active 700 frame.
+    track_aggregation: arithmetic_mean_of_frame_means
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Frame is NaN when no camera-valid pixel exists; track invalid if no valid active frame remains.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: max_frame_p999_valid_temperature_C
+    role: core
+    physical_meaning: Maximum frame-level P99.9 apparent temperature within the camera-valid band; robust lower-bound peak, not true highest surface temperature.
+    unit: C
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Spatial P99.9 of 300-1800 C pixels in the tracking window.
+    track_aggregation: maximum_of_frame_p999_values
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Frame is NaN when no camera-valid pixel exists; above-range and hard-saturation are reported only by QC.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: mean_main_area_above_700_C_mm2
+    role: core
+    physical_meaning: Mean area of the cleaned main 700 C envelope.
+    unit: mm2
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Main 700 C mask pixel count times pixel_area_mm2.
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Active 700 frame guarantees non-empty 700 region; otherwise excluded from this population and counted by QC.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: mean_main_area_above_800_C_mm2
+    role: core
+    physical_meaning: Mean area of the cleaned main 800 C core over active 700 frames.
+    unit: mm2
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Main 800 C mask pixel count times pixel_area_mm2; active 700 frames without an 800 region contribute 0.
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Empty 800 region contributes 0 and is counted by QC.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: mean_main_transverse_width_above_700_C_mm
+    role: core
+    physical_meaning: Mean transverse width of the cleaned main 700 C envelope.
+    unit: mm
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: "(max_col - min_col + 1) * pixel_size_x_mm for the main 700 C region."
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: No active 700 frame yields NaN and an invalid-track flag.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: mean_main_scan_length_above_700_C_mm
+    role: core
+    physical_meaning: Mean scan-direction length of the cleaned main 700 C envelope.
+    unit: mm
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: "(max_row - min_row + 1) * pixel_size_y_mm for the main 700 C region."
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: No active 700 frame yields NaN and an invalid-track flag.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: centroid_path_length_mm
+    role: core
+    physical_meaning: Total path length of the main 700 C geometric centroid in full-image coordinates.
+    unit: mm
+    region: fixed_global_roi
+    frame_population: active_700_frames
+    frame_calculation: Geometric centroid of cleaned main 700 C region converted with x_mm=col*dx and y_mm=-row*dy.
+    track_aggregation: sum_distances_between_adjacent_frames_without_crossing_missing_centroid_gaps
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Do not connect across missing centroid frames; fewer than two adjacent centroids yields NaN.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: signed_scan_direction_displacement_mm
+    role: core
+    physical_meaning: Signed scan-direction displacement of the main 700 C centroid; positive means row index decreases.
+    unit: mm
+    region: fixed_global_roi
+    frame_population: active_700_frames
+    frame_calculation: y_mm = -row * pixel_size_y_mm.
+    track_aggregation: last_valid_y_mm_minus_first_valid_y_mm
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Fewer than two valid centroids yields NaN.
+    cv_applicable: false
+    default_model_input: true
+    default_rsm_response: true
+    signed: true
+
+  - name: signed_transverse_drift_mm
+    role: core
+    physical_meaning: Signed transverse drift of the main 700 C centroid; positive means increasing image column index.
+    unit: mm
+    region: fixed_global_roi
+    frame_population: active_700_frames
+    frame_calculation: x_mm = col * pixel_size_x_mm.
+    track_aggregation: last_valid_x_mm_minus_first_valid_x_mm
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Fewer than two valid centroids yields NaN.
+    cv_applicable: false
+    default_model_input: true
+    default_rsm_response: true
+    signed: true
+
+  - name: centroid_transverse_jitter_mm
+    role: core
+    physical_meaning: RMS transverse residual of centroid trajectory after fitting x = a*y + b.
+    unit: mm
+    region: fixed_global_roi
+    frame_population: active_700_frames
+    frame_calculation: Geometric centroid of cleaned main 700 C region in full-image coordinates.
+    track_aggregation: rms_residual_x_from_line_fit_x_equals_a_y_plus_b
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Fewer than three valid centroids yields NaN and a warning flag.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: median_frame_p95_internal_gradient_magnitude_700_C_per_mm
+    role: core
+    physical_meaning: Median over frames of the internal P95 temperature-gradient magnitude in the main 700 C region.
+    unit: C_per_mm
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Center difference with physical X/Y spacing; center and neighbors must be 300-1800 C and inside the main 700 C region; no smoothing.
+    track_aggregation: median_of_frame_p95_gradient_values
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Frame gradient is NaN if too few valid gradient pixels; track invalid if all gradient frames are NaN.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: mean_signed_thermal_centroid_offset_from_geometric_center_mm
+    role: core
+    physical_meaning: Mean signed transverse offset between excess-temperature centroid and main-region geometric centroid.
+    unit: mm
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Thermal centroid uses weights max(T-700,0) for 700<=T<=1800 C; subtract main 700 geometric centroid transverse coordinate.
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Frame value is NaN when temperature-weight denominator is zero.
+    cv_applicable: false
+    default_model_input: true
+    default_rsm_response: true
+    signed: true
+
+  - name: mean_left_right_excess_temperature_asymmetry_700_fraction
+    role: core
+    physical_meaning: Mean transverse excess-temperature asymmetry around the main 700 C geometric centroid.
+    unit: fraction
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: "(S_right - S_left) / (S_right + S_left), with S=sum(max(T-700,0)) over 700<=T<=1800 C on each transverse side."
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: Frame value is NaN when denominator is zero.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: hot_core_presence_duration_800_C_s
+    role: core
+    physical_meaning: Process time during which the cleaned main 800 C core exists; not a fixed material-point dwell time.
+    unit: s
+    region: tracking_window
+    frame_population: effective_frames
+    frame_calculation: active_800_frame indicator.
+    track_aggregation: active_800_frame_count / 52.0
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: No active 800 frame yields 0 duration and a QC flag, not track deletion.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+  - name: main_area_above_700_C_temporal_cv
+    role: core
+    physical_meaning: Temporal coefficient of variation of the cleaned main 700 C area over active frames.
+    unit: cv
+    region: tracking_window
+    frame_population: active_700_frames
+    frame_calculation: Main 700 C area in mm2 for each active frame.
+    track_aggregation: sample_std_area700_ddof1_divided_by_mean_area700
+    condition_aggregations: [mean, std, cv, n_valid]
+    missing_policy: NaN when fewer than two active 700 frames or mean area is near zero.
+    cv_applicable: true
+    default_model_input: true
+    default_rsm_response: true
+
+qc_only_features:
+  - name: total_effective_frame_count
+    role: qc_only
+    physical_meaning: Number of effective frames after excluding the startup frame.
+    unit: count
+    region: full_frame
+    frame_population: effective_frames
+    frame_calculation: count frames in frames[1:]
+    track_aggregation: count
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Zero count invalidates formal feature extraction for the track.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: active_700_frame_count
+    role: qc_only
+    physical_meaning: Number of effective frames with a cleaned main 700 C region.
+    unit: count
+    region: tracking_window
+    frame_population: effective_frames
+    frame_calculation: count active_700_frame indicators
+    track_aggregation: count
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Zero count invalidates Core features based on active frames.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: active_800_frame_count
+    role: qc_only
+    physical_meaning: Number of effective frames with a cleaned main 800 C region.
+    unit: count
+    region: tracking_window
+    frame_population: effective_frames
+    frame_calculation: count active_800_frame indicators
+    track_aggregation: count
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Zero count is allowed and reported.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: full_frame_valid_pixel_fraction
+    role: qc_only
+    physical_meaning: Fraction of full-frame pixels in the camera-valid 300-1800 C band.
+    unit: fraction
+    region: full_frame
+    frame_population: effective_frames
+    frame_calculation: count valid pixels divided by finite full-frame pixels
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: NaN if no finite pixels exist.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: full_frame_above_range_pixel_fraction
+    role: qc_only
+    physical_meaning: Fraction of full-frame pixels above the camera-valid maximum and below hard saturation.
+    unit: fraction
+    region: full_frame
+    frame_population: effective_frames
+    frame_calculation: count above_range pixels divided by finite full-frame pixels
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: NaN if no finite pixels exist.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: full_frame_hard_saturation_pixel_fraction
+    role: qc_only
+    physical_meaning: Fraction of full-frame pixels at hard saturation.
+    unit: fraction
+    region: full_frame
+    frame_population: effective_frames
+    frame_calculation: count hard-saturation pixels divided by finite full-frame pixels
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: NaN if no finite pixels exist.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: full_frame_nonfinite_pixel_fraction
+    role: qc_only
+    physical_meaning: Fraction of full-frame pixels that are NaN or infinite.
+    unit: fraction
+    region: full_frame
+    frame_population: effective_frames
+    frame_calculation: count nonfinite pixels divided by total pixels
+    track_aggregation: arithmetic_mean
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: Always computable for non-empty frames.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: empty_700_frame_fraction
+    role: qc_only
+    physical_meaning: Fraction of effective frames without a cleaned main 700 C region.
+    unit: fraction
+    region: tracking_window
+    frame_population: effective_frames
+    frame_calculation: count non-active 700 frames divided by effective frames
+    track_aggregation: fraction
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: NaN if effective frame count is zero.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: empty_800_frame_fraction
+    role: qc_only
+    physical_meaning: Fraction of effective frames without a cleaned main 800 C region.
+    unit: fraction
+    region: tracking_window
+    frame_population: effective_frames
+    frame_calculation: count non-active 800 frames divided by effective frames
+    track_aggregation: fraction
+    condition_aggregations: [mean, std, n_valid]
+    missing_policy: NaN if effective frame count is zero.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: feature_valid
+    role: qc_only
+    physical_meaning: Boolean indicator that all required Core features are valid for the track.
+    unit: boolean
+    region: track
+    frame_population: not_applicable
+    frame_calculation: derived from required feature validity checks
+    track_aggregation: boolean_all_required_checks
+    condition_aggregations: [n_valid]
+    missing_policy: false when required prerequisites fail.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+  - name: warning_flags
+    role: qc_only
+    physical_meaning: Semicolon-delimited warning flags for non-fatal data-quality conditions.
+    unit: string_list
+    region: track
+    frame_population: not_applicable
+    frame_calculation: collect warnings during feature calculation
+    track_aggregation: concatenate_unique_flags
+    condition_aggregations: [n_valid]
+    missing_policy: empty string when no warnings occur.
+    cv_applicable: false
+    default_model_input: false
+    default_rsm_response: false
+
+secondary_features:
+  - {name: p95_valid_temperature_C, role: secondary, physical_meaning: Frame/track P95 valid-band temperature, unit: C, region: tracking_window, frame_population: active_700_frames, frame_calculation: P95 of 300-1800 C pixels, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: not_in_first_core_set, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: p99_valid_temperature_C, role: secondary, physical_meaning: Frame/track P99 valid-band temperature, unit: C, region: tracking_window, frame_population: active_700_frames, frame_calculation: P99 of 300-1800 C pixels, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: not_in_first_core_set, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: width_above_800_C_mm, role: secondary, physical_meaning: Width of cleaned main 800 C core, unit: mm, region: tracking_window, frame_population: active_700_frames, frame_calculation: bbox width of main 800 C region, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: not_in_first_core_set, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: scan_length_above_800_C_mm, role: secondary, physical_meaning: Scan-direction length of cleaned main 800 C core, unit: mm, region: tracking_window, frame_population: active_700_frames, frame_calculation: bbox height of main 800 C region, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: not_in_first_core_set, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: compactness_700, role: secondary, physical_meaning: Compactness of main 700 C geometry, unit: dimensionless, region: tracking_window, frame_population: active_700_frames, frame_calculation: area/perimeter-derived compactness, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: sensitive_to_mask_noise, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: aspect_ratio_700, role: secondary, physical_meaning: Main 700 C width divided by scan length, unit: dimensionless, region: tracking_window, frame_population: active_700_frames, frame_calculation: transverse_width / scan_length, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: not_in_first_core_set, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: front_rear_asymmetry, role: secondary, physical_meaning: Scan-direction excess-temperature asymmetry, unit: dimensionless, region: tracking_window, frame_population: active_700_frames, frame_calculation: to_be_defined_after_front_rear_convention_review, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: direction_convention_pending, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: centroid_velocity_mm_per_s, role: secondary, physical_meaning: Frame-to-frame centroid speed, unit: mm_per_s, region: fixed_global_roi, frame_population: active_700_frames, frame_calculation: centroid displacement divided by dt, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: sensitive_to_centroid_noise, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: time_to_peak_s, role: secondary, physical_meaning: Time at which the valid-band robust peak curve reaches maximum, unit: s, region: tracking_window, frame_population: active_700_frames, frame_calculation: argmax of P99.9 valid-band curve, track_aggregation: earliest_peak_time, condition_aggregations: [mean, std, cv, n_valid], missing_policy: P99.9 process curve is not material-point thermal cycle, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: post_peak_temperature_decay_rate_C_per_s, role: secondary, physical_meaning: Post-peak decay rate of P99.9 valid-band process curve, unit: C_per_s, region: tracking_window, frame_population: active_700_frames, frame_calculation: derivative after peak, track_aggregation: to_be_defined, condition_aggregations: [mean, std, n_valid], missing_policy: P99.9 process curve is not material-point thermal cycle, cv_applicable: false, default_model_input: false, default_rsm_response: false, signed: true}
+  - {name: heating_rate_C_per_s, role: secondary, physical_meaning: Heating rate of a selected process temperature curve, unit: C_per_s, region: tracking_window, frame_population: active_700_frames, frame_calculation: positive derivative of selected curve, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: curve_definition_pending, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: temperature_auc_C_s, role: secondary, physical_meaning: Area under a selected process temperature curve, unit: C_s, region: tracking_window, frame_population: active_700_frames, frame_calculation: trapezoidal integral, track_aggregation: to_be_defined, condition_aggregations: [mean, std, cv, n_valid], missing_policy: curve_definition_pending, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+  - {name: peak_temperature_fluctuation_C, role: secondary, physical_meaning: High-frequency fluctuation of robust peak process curve, unit: C, region: tracking_window, frame_population: active_700_frames, frame_calculation: residual from unsmoothed minus smoothed P99.9 curve, track_aggregation: standard_deviation, condition_aggregations: [mean, std, cv, n_valid], missing_policy: smoothing_policy_pending, cv_applicable: true, default_model_input: false, default_rsm_response: false}
+
+rejected_features:
+  - {name: single_pixel_max_temperature_C, role: rejected, physical_meaning: Single-pixel maximum temperature, unit: not_applicable, region: not_applicable, frame_population: not_applicable, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: polluted_by_above_range_and_hard_saturation_pixels}
+  - {name: temperature_above_range_clipped_to_1800_C, role: rejected, physical_meaning: Clipped above-range temperature treated as valid, unit: not_applicable, region: not_applicable, frame_population: not_applicable, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: above_range_values_are_not_quantitative_temperatures}
+  - {name: interpolated_hard_saturation_temperature, role: rejected, physical_meaning: Interpolated hard-saturation temperature value, unit: not_applicable, region: not_applicable, frame_population: not_applicable, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: invalid_pixels_must_be_masked_and_reported_not_interpolated}
+  - {name: pseudo_color_image_features, role: rejected, physical_meaning: Features from pseudo-color heat-map images, unit: not_applicable, region: not_applicable, frame_population: not_applicable, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: pseudo_color_images_are_not_quantitative_temperature_data}
+  - {name: full_frame_background_temperature_mean, role: rejected, physical_meaning: Mean temperature over the full frame including background, unit: not_applicable, region: full_frame, frame_population: effective_frames, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: dominated_by_background_and_not_a_melt_pool_response}
+  - {name: all_temperature_percentiles_simultaneously, role: rejected, physical_meaning: Large redundant set of temperature percentile columns, unit: not_applicable, region: tracking_window, frame_population: active_700_frames, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: excessive_redundancy_for_19_condition_response_surface}
+  - {name: concatenated_T1_T2_T3_sequence, role: rejected, physical_meaning: Treating T1/T2/T3 as one long sequence, unit: not_applicable, region: not_applicable, frame_population: not_applicable, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: repeated_tracks_must_not_be_concatenated}
+  - {name: legacy_500_C_haz_width, role: rejected, physical_meaning: Legacy heat-affected-zone width at 500 C, unit: not_applicable, region: tracking_window, frame_population: effective_frames, frame_calculation: not_computed, track_aggregation: not_computed, condition_aggregations: [], missing_policy: rejected, cv_applicable: false, default_model_input: false, default_rsm_response: false, enabled: false, rejection_reason: not_part_of_the_formal_700_800_C_threshold_contract}
+
+track_level_output_contract:
+  planned_path: results/tables/formal_track_thermal_features.csv
+  expected_rows: 57
+  row_unit: sample_id
+  creation_enabled: false
+  required_identifier_fields: [sample_id, condition_id, track_id, plate_id, track_order]
+  required_process_fields: [laser_power_W, scan_speed_mm_min, magnetic_field_mT, powder_feed_set_g_min, travel_distance_mm]
+  required_config_fields: [formal_pipeline_config, roi_strategy_config, physical_calibration_config, thermal_feature_contract_config]
+
+condition_level_output_contract:
+  planned_path: results/tables/formal_condition_thermal_responses.csv
+  expected_rows: 19
+  row_unit: condition_id
+  creation_enabled: false
+  naming_pattern: feature__stat
+  required_stats: [mean, std, cv, n_valid]
+
+aggregation_policy:
+  track_to_condition:
+    group_by: condition_id
+    repeats: [T1, T2, T3]
+    concatenate_repeats: false
+    cross_condition_aggregation: false
+    silent_repeat_deletion: false
+  statistics:
+    mean: arithmetic_mean_over_valid_track_values
+    std: sample_standard_deviation_ddof_1
+    n_valid: count_valid_track_values
+    cv: std / abs(mean)
+    cv_requires_n_valid_at_least: 2
+    cv_near_zero_mean_policy: NaN_with_status_flag
+
+forbidden_operations:
+  - read_57_formal_matrices
+  - generate_roi_matrices
+  - generate_feature_csv
+  - modify_data_directory
+  - modify_results_directory
+  - import_numpy_in_loader
+  - run_extraction_script_from_loader
+  - use_configs_default_as_formal_source

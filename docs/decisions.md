@@ -219,3 +219,18 @@ Status: accepted_but_not_activated.
 
 Impact files or stage: Future ROI generation and feature extraction must read
 from this config; current execution gates remain closed.
+
+### Decision 21
+
+Decision: `configs/thermal_feature_contract.yaml` is the machine-readable
+contract for the first formal thermal-field feature set, and
+`docs/formal_feature_dictionary.md` is the human-readable feature dictionary.
+
+Reason: The formal feature definitions, units, ROI/window responsibilities,
+invalid-pixel policy, QC-only fields, and condition aggregation rules must be
+fixed before any extraction code reads the 57 matrices or writes feature tables.
+
+Status: designed_not_executed.
+
+Impact files or stage: Future formal feature computation must follow this
+contract; current ROI generation and feature extraction gates remain closed.
