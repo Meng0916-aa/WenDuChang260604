@@ -234,3 +234,51 @@ Status: designed_not_executed.
 
 Impact files or stage: Future formal feature computation must follow this
 contract; current ROI generation and feature extraction gates remain closed.
+
+### Decision 22
+
+Decision: XTherm binary/temperature-format authority and physical calibration
+authority are separated. `configs/xtherm_format.yaml` owns XTherm binary layout,
+raw-count scaling, camera-valid range, above-range/hard-saturation rules, and
+conversion-QC thresholds. `configs/physical_calibration.yaml` owns spatial scale,
+frame rate, image geometry, optical/process metadata, and physical calibration.
+
+Reason: Keeping temperature binary fields in physical calibration as if they
+were independently authoritative creates conflicting sources of truth.
+
+Status: Active.
+
+Impact files or stage: Formal conversion, ROI, and feature code must use the
+appropriate authority for each parameter family.
+
+### Decision 23
+
+Decision: Deprecated temperature binary fields may remain in
+`configs/physical_calibration.yaml` only as compatibility mirrors, and the
+physical calibration loader must cross-check them against
+`configs/xtherm_format.yaml`.
+
+Reason: Existing metadata/audit code and tests still consume compatibility
+properties, but those values must not diverge from the formal XTherm authority.
+
+Status: Active compatibility rule.
+
+Impact files or stage: `src/config/physical_calibration.py` rejects any mirror
+value that conflicts with `configs/xtherm_format.yaml`.
+
+### Decision 24
+
+Decision: The formal main hot-region mask algorithm uses 8-connectivity, removes
+candidate components smaller than 9 pixels, requires a camera-valid hot seed,
+allows above-range and hard-saturation pixels only when connected to that seed,
+selects the largest seeded connected component, fills internal holes, and returns
+an empty region when no camera-valid hot seed exists.
+
+Reason: The feature contract must match the implemented ROI hot-region
+localization rule while preventing isolated saturation artifacts from becoming
+formal melt-pool regions.
+
+Status: Active contract.
+
+Impact files or stage: ROI strategy review, formal feature contract, and future
+frame-level feature computation.

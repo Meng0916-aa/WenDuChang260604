@@ -11,12 +11,34 @@ import re
 
 import yaml
 
+from config.xtherm_format import load_xtherm_format
+
 
 _ROOT = Path(__file__).resolve().parents[2]
 _VALID_ROLES = {"core", "qc_only", "secondary", "rejected"}
 _EXPECTED_CORE_COUNT = 15
+_EXPECTED_CORE_NAMES = frozenset(
+    {
+        "mean_active_frame_valid_temperature_C",
+        "max_frame_p999_valid_temperature_C",
+        "mean_main_area_above_700_C_mm2",
+        "mean_main_area_above_800_C_mm2",
+        "mean_main_transverse_width_above_700_C_mm",
+        "mean_main_scan_length_above_700_C_mm",
+        "centroid_path_length_mm",
+        "signed_scan_direction_displacement_mm",
+        "signed_transverse_drift_mm",
+        "centroid_transverse_jitter_mm",
+        "median_frame_p95_internal_gradient_magnitude_700_C_per_mm",
+        "mean_signed_thermal_centroid_offset_from_geometric_center_mm",
+        "mean_left_right_excess_temperature_asymmetry_700_fraction",
+        "hot_core_presence_duration_800_C_s",
+        "main_area_above_700_C_temporal_cv",
+    }
+)
 _EXPECTED_TRACK_ROWS = 57
 _EXPECTED_CONDITION_ROWS = 19
+_XTHERM_FORMAT_SOURCE = "configs/xtherm_format.yaml"
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _UNIT_SUFFIXES = {
     "count": "_count",
@@ -301,9 +323,29 @@ def _required_str_tuple(
     section: str,
 ) -> tuple[str, ...]:
     value = _required(mapping, key, section)
-    if not isinstance(value, list):
+    if not isinstance(value, (list, tuple)):
         raise ThermalFeatureContractError(f"{section}.{key} must be a list")
     return tuple(str(item) for item in value)
+
+
+def _assert_equal(field: str, contract_value: Any, authority_value: Any) -> None:
+    if _normalize_scalar(contract_value) != _normalize_scalar(authority_value):
+        raise ThermalFeatureContractError(
+            f"{field} conflicts with {_XTHERM_FORMAT_SOURCE}: "
+            f"thermal_feature_contract.yaml={contract_value!r}, "
+            f"xtherm_format.yaml={authority_value!r}"
+        )
+
+
+def _normalize_scalar(value: Any) -> Any:
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, int):
+        return value
+    try:
+        return round(float(value), 12)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _parse_output_contract(
@@ -352,9 +394,20 @@ def _validate_contract(contract: ThermalFeatureContract) -> None:
             "formal_roi_generation_enabled must remain false"
         )
 
+    core_name_list = [feature.name for feature in contract.core_features]
+    core_names = set(core_name_list)
     if len(contract.core_features) != _EXPECTED_CORE_COUNT:
         raise ThermalFeatureContractError(
             f"core feature count must be {_EXPECTED_CORE_COUNT}"
+        )
+    if len(core_name_list) != len(core_names):
+        raise ThermalFeatureContractError("core feature names must be unique")
+    if core_names != _EXPECTED_CORE_NAMES:
+        missing = sorted(_EXPECTED_CORE_NAMES - core_names)
+        extra = sorted(core_names - _EXPECTED_CORE_NAMES)
+        raise ThermalFeatureContractError(
+            "core feature names must match the approved set; "
+            f"missing={missing}, extra={extra}"
         )
 
     _validate_sources(contract.sources)
@@ -379,6 +432,10 @@ def _validate_sources(sources: Mapping[str, str]) -> None:
     missing = sorted(required - set(sources))
     if missing:
         raise ThermalFeatureContractError(f"missing sources: {missing}")
+    if sources["xtherm_format_config"] != _XTHERM_FORMAT_SOURCE:
+        raise ThermalFeatureContractError(
+            "xtherm_format_config must be configs/xtherm_format.yaml"
+        )
 
 
 def _validate_frame_and_temperature_blocks(contract: ThermalFeatureContract) -> None:
@@ -404,8 +461,42 @@ def _validate_frame_and_temperature_blocks(contract: ThermalFeatureContract) -> 
         raise ThermalFeatureContractError("extra frame exclusion must remain false")
 
     temp = contract.temperature_validity
-    for key in ("valid_min_C", "valid_max_C", "hard_saturation_min_C"):
-        _required_float(temp, key, "temperature_validity")
+    valid_min = _required_float(temp, "valid_min_C", "temperature_validity")
+    valid_max = _required_float(temp, "valid_max_C", "temperature_validity")
+    hard = _required_float(
+        temp, "hard_saturation_threshold_C", "temperature_validity"
+    )
+    above_min = _required_float(
+        temp, "above_range_min_C", "temperature_validity"
+    )
+    above_max = _required_float(
+        temp, "above_range_max_C", "temperature_validity"
+    )
+    xtherm = load_xtherm_format(
+        _resolve_repo_path(contract.sources["xtherm_format_config"])
+    )
+    _assert_equal(
+        "temperature_validity.valid_min_C",
+        valid_min,
+        xtherm.camera_valid_temperature_min_C,
+    )
+    _assert_equal(
+        "temperature_validity.valid_max_C",
+        valid_max,
+        xtherm.camera_valid_temperature_max_C,
+    )
+    _assert_equal(
+        "temperature_validity.hard_saturation_threshold_C",
+        hard,
+        xtherm.hard_saturation_threshold_C,
+    )
+    if not (valid_min < valid_max < hard):
+        raise ThermalFeatureContractError(
+            "temperature validity must satisfy valid_min_C < valid_max_C "
+            "< hard_saturation_threshold_C"
+        )
+    _assert_equal("temperature_validity.above_range_min_C", above_min, valid_max)
+    _assert_equal("temperature_validity.above_range_max_C", above_max, hard)
     if _required_bool(
         temp,
         "invalid_pixel_interpolation_enabled",
@@ -429,15 +520,83 @@ def _validate_frame_and_temperature_blocks(contract: ThermalFeatureContract) -> 
 
     geometry = contract.geometry_mask_policy
     thresholds = _section(geometry, "main_region_thresholds_C")
-    _required_float(thresholds, "envelope", "geometry_mask_policy.main_region_thresholds_C")
-    _required_float(thresholds, "core", "geometry_mask_policy.main_region_thresholds_C")
-    _required_int(geometry, "connectivity", "geometry_mask_policy")
-    _required_int(geometry, "min_component_area_px", "geometry_mask_policy")
-    _required_bool(
+    envelope = _required_float(
+        thresholds, "envelope", "geometry_mask_policy.main_region_thresholds_C"
+    )
+    core = _required_float(
+        thresholds, "core", "geometry_mask_policy.main_region_thresholds_C"
+    )
+    if not (valid_min <= envelope < core <= valid_max):
+        raise ThermalFeatureContractError(
+            "formal 700/800 C thresholds must be ordered and within the "
+            "camera-valid range"
+        )
+    if envelope != 700.0 or core != 800.0:
+        raise ThermalFeatureContractError("formal thresholds must be 700 C and 800 C")
+    if _required_int(geometry, "connectivity", "geometry_mask_policy") != 8:
+        raise ThermalFeatureContractError("geometry_mask_policy.connectivity must be 8")
+    min_area = _required_int(
+        geometry, "min_component_area_px", "geometry_mask_policy"
+    )
+    if min_area != 9:
+        raise ThermalFeatureContractError(
+            "geometry_mask_policy.min_component_area_px must be 9"
+        )
+    if _required_bool(
+        geometry, "valid_hot_seed_required", "geometry_mask_policy"
+    ) is not True:
+        raise ThermalFeatureContractError("valid hot seed is required")
+    candidates = set(
+        _required_str_tuple(
+            geometry, "expansion_candidates", "geometry_mask_policy"
+        )
+    )
+    if candidates != {"above_range", "hard_saturation"}:
+        raise ThermalFeatureContractError(
+            "expansion_candidates must be above_range and hard_saturation"
+        )
+    if _required_bool(
+        geometry,
+        "expansion_requires_connection_to_valid_hot_seed",
+        "geometry_mask_policy",
+    ) is not True:
+        raise ThermalFeatureContractError(
+            "expansion must require connection to a valid hot seed"
+        )
+    if str(_required(
+        geometry, "main_component_selection", "geometry_mask_policy"
+    )) != "largest_seeded_connected_component":
+        raise ThermalFeatureContractError(
+            "main_component_selection must be largest_seeded_connected_component"
+        )
+    if _required_bool(
+        geometry, "fill_internal_holes", "geometry_mask_policy"
+    ) is not True:
+        raise ThermalFeatureContractError("fill_internal_holes must be true")
+    if _required_bool(
         geometry,
         "include_above_or_hard_only_if_connected_to_valid_hot_region",
         "geometry_mask_policy",
-    )
+    ) is not True:
+        raise ThermalFeatureContractError(
+            "above/hard pixels require connection to a valid hot region"
+        )
+    if _required_bool(
+        geometry,
+        "isolated_above_range_can_form_main_region",
+        "geometry_mask_policy",
+    ) is not False:
+        raise ThermalFeatureContractError(
+            "isolated above_range cannot form the main region"
+        )
+    if _required_bool(
+        geometry,
+        "isolated_hard_saturation_can_form_main_region",
+        "geometry_mask_policy",
+    ) is not False:
+        raise ThermalFeatureContractError(
+            "isolated hard_saturation cannot form the main region"
+        )
     if _required_bool(
         geometry,
         "isolated_saturation_can_form_main_region",
@@ -445,6 +604,12 @@ def _validate_frame_and_temperature_blocks(contract: ThermalFeatureContract) -> 
     ) is not False:
         raise ThermalFeatureContractError(
             "isolated saturation cannot form the main region"
+        )
+    if str(_required(
+        geometry, "no_valid_hot_seed_result", "geometry_mask_policy"
+    )) != "empty_region":
+        raise ThermalFeatureContractError(
+            "no_valid_hot_seed_result must be empty_region"
         )
 
     coordinates = contract.coordinate_convention

@@ -1,6 +1,14 @@
 # Project State
 
-Baseline commit: `6ab3a19`
+State document scope: reflects the repository state after the formal
+thermal-feature contract stage and the authoritative configuration-chain
+consistency repair.
+
+Repository commit hashes are maintained by Git history and are not recorded here
+as a permanent "current" value because that statement would become stale after
+the next commit.
+
+Last verified full test suite: 298 passed in the `pytorch` conda environment.
 
 ## Completed
 
@@ -17,13 +25,13 @@ Baseline commit: `6ab3a19`
 - Formal thermal-feature dictionary and machine-readable contract are
   established in `docs/formal_feature_dictionary.md` and
   `configs/thermal_feature_contract.yaml`.
-- Full test suite baseline: 233 passed in the `pytorch` conda environment.
 - 57-track conversion dry-run passed.
 
 ## Evaluated But Not Enabled
 
 - ROI strategy evaluation is complete.
 - ROI strategy status: evaluated but not activated.
+- ROI strategy configuration is established but not activated.
 - Fixed global ROI: rows `[175:495]`, cols `[86:334]`.
 - Recommended moving tracking window: 256 x 216 px.
 - Recommended strategy: `global_roi_plus_tracking_window`.

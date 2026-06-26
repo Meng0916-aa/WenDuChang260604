@@ -29,6 +29,8 @@ Completed:
 - 57 full-frame matrix conversions.
 - Conversion QC.
 - ROI strategy evaluation.
+- Formal ROI strategy machine-readable configuration.
+- Formal thermal-feature dictionary and machine-readable contract.
 
 Not enabled:
 
@@ -43,11 +45,24 @@ Formal authoritative sources:
 
 - `configs/formal_pipeline.yaml`
 - `configs/experiments.yaml`
-- `configs/physical_calibration.yaml`
 - `configs/xtherm_format.yaml`
+- `configs/physical_calibration.yaml`
+- `configs/roi_strategy.yaml`
+- `configs/thermal_feature_contract.yaml`
 
 `configs/default.yaml` is legacy-only. It has no formal authority for the
 57-track pipeline.
+
+`configs/xtherm_format.yaml` is the authority for binary XTherm layout,
+temperature scaling, camera-valid range, above-range/hard-saturation rules, and
+conversion QC thresholds. `configs/physical_calibration.yaml` is the authority
+for spatial scale, frame rate, image geometry, optical/process metadata, and
+physical calibration.
+
+`configs/roi_strategy.yaml` is the authoritative record of the evaluated but not
+activated ROI strategy. `configs/thermal_feature_contract.yaml` is the
+authoritative record of the approved but not executed feature contract. Their
+presence does not enable ROI generation or formal feature extraction.
 
 ## Key Formal Parameters
 

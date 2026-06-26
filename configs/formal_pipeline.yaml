@@ -17,6 +17,13 @@ pipeline:
   local_config: configs/local.yaml          # git-ignored; machine-specific paths
   master_csv: data/metadata/experiment_master.csv
 
+authoritative_config_chain:
+  experiments_config: configs/experiments.yaml
+  xtherm_format_config: configs/xtherm_format.yaml
+  physical_calibration_config: configs/physical_calibration.yaml
+  roi_strategy_config: configs/roi_strategy.yaml
+  thermal_feature_contract_config: configs/thermal_feature_contract.yaml
+
 # Raw-data root resolution priority (no absolute path stored here):
 #   1) CLI --raw-data-root  2) env WENDUCHANG_DATA_ROOT
 #   3) configs/local.yaml   4) configs/experiments.yaml (null) -> else error

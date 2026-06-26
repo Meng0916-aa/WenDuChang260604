@@ -47,19 +47,26 @@ is **not** used for formal processing; X is **assumed equal** to Y (X/Y anisotro
 verified). **Image geometry confirmed:** `scan_axis = y`, melt pool moves toward the image
 **top** (`image_scan_direction = upward`, array row index decreasing, `physical_to_array_y_sign
 = -1`), no rotation/flip. **Frame rate confirmed `52 fps`** (user setting, not `session.xml`);
-effective frames = `frames[1:]` (startup frame 1 excluded). **Camera valid range 300–1800 °C**
-(outside → masked & reported; raw never modified; >1800 °C is `above_range`, ≥6500 °C is
-`hard_saturation`). Working distance **300 mm**, laser spot **1 mm**, defocus **+14 mm**,
-powder-feed setpoint **40 g/min** (actual not measured). Emissivity/transmission `not_recorded`
-→ results are the **infrared apparent temperature field**, not absolute surface temperature.
+effective frames = `frames[1:]` (startup frame 1 excluded). The camera valid range and
+XTherm binary temperature format are authoritative in `configs/xtherm_format.yaml`:
+**300–1800 °C** is camera-valid, `>1800 °C` is `above_range`, and `≥6500 °C` is
+`hard_saturation`. Raw and matrix values are never modified. Working distance **300 mm**,
+laser spot **1 mm**, defocus **+14 mm**, powder-feed setpoint **40 g/min** (actual not
+measured). Emissivity/transmission `not_recorded` → results are the **infrared apparent
+temperature field**, not absolute surface temperature.
 Details: `docs/physical_calibration_and_process_parameters_to_confirm.md`.
 
-**Computable now** (apparent-temperature, frame rate available): valid-band statistics (°C);
-robust peak **P99.9** (°C) within band; above-range / hard-saturation pixel counts & ratios;
-high-temperature **area (mm²)**; 700/800 °C isotherm **width (mm)**; hot-zone bounding-box
-(mm); **scan-direction & transverse** gradients (°C/mm); **signed** center offset (mm);
-left/right asymmetry; cooling rate (°C/s), dwell time (s), temperature AUC (°C·s), scan
-distance per frame (mm), scan duration (s).
+**Current approved Core feature contract supports:** camera-valid temperature statistics;
+valid-band P99.9 robust process peak; 700/800 °C main-region area; 700 °C width and
+scan-direction length; absolute centroid trajectory, displacement, drift, and transverse
+jitter; internal 700 °C-region gradient; thermal-centroid offset; transverse excess-temperature
+asymmetry; 800 °C core presence duration; and 700 °C area temporal CV.
+
+**Secondary, not formally enabled:** cooling/heating rate, time to peak, temperature AUC,
+peak fluctuation, and fixed-material-point thermal-cycle interpretations. The tracking-window
+P99.9 process curve is not a fixed material-point thermal cycle, and
+`hot_core_presence_duration_800_C_s` is the duration of 800 °C core-region presence, not a
+material-point dwell time.
 
 **Formal feature contract — designed, not executed.**
 `configs/thermal_feature_contract.yaml` and `docs/formal_feature_dictionary.md`
@@ -174,7 +181,9 @@ data/
   processed/{matrix,roi,thermal_cycle,samples}/
   metadata/
 configs/                   <- YAML config: formal_pipeline.yaml (ACTIVE) +
-                              experiments.yaml + physical_calibration.yaml;
+                              experiments.yaml + xtherm_format.yaml +
+                              physical_calibration.yaml + roi_strategy.yaml +
+                              thermal_feature_contract.yaml;
                               default.yaml = LEGACY; local.yaml = machine paths (git-ignored)
 src/                       <- source modules
 scripts/                   <- numbered pipeline scripts
@@ -186,7 +195,9 @@ docs/                      <- documentation
 ## Current formal workflow (the ONLY recommended pipeline)
 
 The active pipeline entry of record is `configs/formal_pipeline.yaml`
-(it references `configs/experiments.yaml` + `configs/physical_calibration.yaml`).
+(it references `configs/experiments.yaml`, `configs/xtherm_format.yaml`,
+`configs/physical_calibration.yaml`, `configs/roi_strategy.yaml`, and
+`configs/thermal_feature_contract.yaml`).
 `configs/default.yaml` is **legacy** and is not used here. Full detail:
 `docs/formal_pipeline.md`.
 

@@ -36,7 +36,7 @@ temperature_validity:
   valid_max_C: 1800.0
   above_range_min_C: 1800.0
   above_range_max_C: 6500.0
-  hard_saturation_min_C: 6500.0
+  hard_saturation_threshold_C: 6500.0
   nonfinite_policy: mask_and_report
   invalid_pixel_interpolation_enabled: false
   above_range_quantitative_use_enabled: false
@@ -48,8 +48,18 @@ geometry_mask_policy:
     core: 800.0
   connectivity: 8
   min_component_area_px: 9
+  valid_hot_seed_required: true
+  expansion_candidates:
+    - above_range
+    - hard_saturation
+  expansion_requires_connection_to_valid_hot_seed: true
+  main_component_selection: largest_seeded_connected_component
+  fill_internal_holes: true
   include_above_or_hard_only_if_connected_to_valid_hot_region: true
+  isolated_above_range_can_form_main_region: false
+  isolated_hard_saturation_can_form_main_region: false
   isolated_saturation_can_form_main_region: false
+  no_valid_hot_seed_result: empty_region
   area_rule: pixel_count_times_pixel_area
   width_rule: "(max_col - min_col + 1) * pixel_size_x_mm"
   scan_length_rule: "(max_row - min_row + 1) * pixel_size_y_mm"

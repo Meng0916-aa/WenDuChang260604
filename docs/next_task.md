@@ -6,8 +6,8 @@ feature computation modules, using only synthetic arrays for unit tests.
 ## Scope
 
 - Implement feature primitives from `configs/thermal_feature_contract.yaml`.
-- Use `configs/roi_strategy.yaml` and `configs/physical_calibration.yaml` as
-  configuration inputs.
+- Use `configs/xtherm_format.yaml`, `configs/roi_strategy.yaml`, and
+  `configs/physical_calibration.yaml` as configuration inputs.
 - Test frame-level and track-level functions with small synthetic arrays only.
 - Preserve the contract that one track produces one feature row, but do not
   create any formal output table in this task.

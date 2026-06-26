@@ -20,6 +20,7 @@ from config import physical_calibration as pcmod
 from config.physical_calibration import load_physical_calibration, CalibrationError
 
 CAL_FILE = os.path.join(_ROOT, "configs", "physical_calibration.yaml")
+XTHERM_FILE = os.path.join(_ROOT, "configs", "xtherm_format.yaml")
 EXP_FILE = os.path.join(_ROOT, "configs", "experiments.yaml")
 MASTER = os.path.join(_ROOT, "data", "metadata", "experiment_master.csv")
 
@@ -31,6 +32,14 @@ TOL = 1e-9
 def _yaml(path):
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _write_calibration_variant(tmp_path, mutator):
+    cfg = _yaml(CAL_FILE)
+    mutator(cfg)
+    path = tmp_path / "physical_calibration.yaml"
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def _master_rows():
@@ -194,6 +203,55 @@ def test_loading_calibration_is_read_only():
         n = len([x for x in os.listdir(mdir) if x.endswith(".npy")])
         load_physical_calibration(CAL_FILE)
         assert len([x for x in os.listdir(mdir) if x.endswith(".npy")]) == n
+
+
+# 16 ------------------------------------------------------------------------
+def test_temperature_compatibility_mirror_matches_xtherm_format():
+    cfg = _yaml(CAL_FILE)
+    xtherm = _yaml(XTHERM_FILE)
+    temp = cfg["temperature_calibration"]
+    geom = cfg["image_geometry"]
+    assert temp["role"] == "deprecated_compatibility_mirror"
+    assert temp["authoritative_source"] == "configs/xtherm_format.yaml"
+    assert temp["formal_consumers_must_use_authoritative_source"] is True
+    assert geom["image_height_px"] == xtherm["image"]["height_px"]
+    assert geom["image_width_px"] == xtherm["image"]["width_px"]
+    assert temp["header_bytes"] == xtherm["binary"]["header_bytes"]
+    assert temp["raw_dtype"] == xtherm["binary"]["raw_dtype"]
+    assert temp["byte_order"] == xtherm["binary"]["byte_order"]
+    assert temp["scale_C_per_count"] == xtherm["binary"]["scale_C_per_count"]
+    assert (
+        temp["valid_temperature_min_C"]
+        == xtherm["temperature_qc"]["camera_valid_temperature_min_C"]
+    )
+    assert (
+        temp["valid_temperature_max_C"]
+        == xtherm["temperature_qc"]["camera_valid_temperature_max_C"]
+    )
+    assert (
+        temp["hard_saturation_threshold_C"]
+        == xtherm["temperature_qc"]["hard_saturation_threshold_C"]
+    )
+    load_physical_calibration(CAL_FILE)
+
+
+# 17 ------------------------------------------------------------------------
+def test_temperature_compatibility_mirror_conflict_raises(tmp_path):
+    def mutate(cfg):
+        cfg["temperature_calibration"]["header_bytes"] = 57
+
+    path = _write_calibration_variant(tmp_path, mutate)
+    with pytest.raises(CalibrationError, match="header_bytes.*xtherm_format"):
+        load_physical_calibration(path)
+
+
+# 18 ------------------------------------------------------------------------
+def test_formal_temperature_authority_points_to_xtherm_format():
+    cfg = _yaml(CAL_FILE)
+    temp = cfg["temperature_calibration"]
+    assert temp["role"] == "deprecated_compatibility_mirror"
+    assert temp["authoritative_source"] == "configs/xtherm_format.yaml"
+    assert temp["formal_consumers_must_use_authoritative_source"] is True
 
 
 if __name__ == "__main__":

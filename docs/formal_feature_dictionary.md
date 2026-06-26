@@ -66,12 +66,17 @@ Forbidden:
 Main 700/800 regions use the cleaned main connected component already established
 by the ROI evaluation policy:
 
-- threshold at 700 C or 800 C;
-- 8-connectivity;
-- small components below 9 px removed;
-- a component is genuine only if it contains at least one camera-valid hot pixel;
-- isolated above-range or hard-saturation components cannot become the main
-  region.
+1. Build a camera-valid hot seed mask at 700 C or 800 C.
+2. Allow above-range and hard-saturation pixels to participate in geometry only
+   when they are connected to a camera-valid hot seed.
+3. Use 8-connectivity for connected-component labeling.
+4. Remove candidate regions smaller than 9 pixels.
+5. Select the largest seeded connected component as the main region.
+6. Fill internal holes of that main region in the mask only.
+7. If no camera-valid hot seed exists, the formal main region is empty.
+
+Above-range and hard-saturation pixels are never treated as quantitative
+temperatures. They may only expand geometry under the connectivity rule above.
 
 Area and sizes:
 

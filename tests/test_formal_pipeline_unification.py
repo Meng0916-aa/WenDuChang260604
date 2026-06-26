@@ -79,6 +79,20 @@ def test_06_formal_pipeline_has_no_absolute_path():
     assert fc.find_absolute_path_values(_yaml("configs/experiments.yaml")) == []
 
 
+def test_formal_pipeline_explicit_authoritative_config_chain():
+    cfg = _yaml("configs/formal_pipeline.yaml")
+    chain = cfg["authoritative_config_chain"]
+    assert chain["xtherm_format_config"] == "configs/xtherm_format.yaml"
+    assert chain["physical_calibration_config"] == "configs/physical_calibration.yaml"
+    assert chain["roi_strategy_config"] == "configs/roi_strategy.yaml"
+    assert (
+        chain["thermal_feature_contract_config"]
+        == "configs/thermal_feature_contract.yaml"
+    )
+    assert cfg["processing"]["generate_formal_roi_matrices"] is False
+    assert cfg["processing"]["formal_feature_extraction_enabled"] is False
+
+
 # ===== Path resolution (7-12) =============================================
 
 def test_07_cli_path_has_highest_priority():

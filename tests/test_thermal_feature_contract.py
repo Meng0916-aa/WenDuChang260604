@@ -17,10 +17,88 @@ from config.thermal_feature_contract import (
 
 
 CONTRACT = os.path.join(_ROOT, "configs", "thermal_feature_contract.yaml")
+XTHERM_CONFIG = os.path.join(_ROOT, "configs", "xtherm_format.yaml")
+
+EXPECTED_CORE_NAMES = {
+    "mean_active_frame_valid_temperature_C",
+    "max_frame_p999_valid_temperature_C",
+    "mean_main_area_above_700_C_mm2",
+    "mean_main_area_above_800_C_mm2",
+    "mean_main_transverse_width_above_700_C_mm",
+    "mean_main_scan_length_above_700_C_mm",
+    "centroid_path_length_mm",
+    "signed_scan_direction_displacement_mm",
+    "signed_transverse_drift_mm",
+    "centroid_transverse_jitter_mm",
+    "median_frame_p95_internal_gradient_magnitude_700_C_per_mm",
+    "mean_signed_thermal_centroid_offset_from_geometric_center_mm",
+    "mean_left_right_excess_temperature_asymmetry_700_fraction",
+    "hot_core_presence_duration_800_C_s",
+    "main_area_above_700_C_temporal_cv",
+}
+
+EXPECTED_CORE_SEMANTICS = {
+    "mean_active_frame_valid_temperature_C": (
+        "C", "tracking_window", "active_700_frames",
+        "arithmetic_mean_of_frame_means", True,
+    ),
+    "max_frame_p999_valid_temperature_C": (
+        "C", "tracking_window", "active_700_frames",
+        "maximum_of_frame_p999_values", True,
+    ),
+    "mean_main_area_above_700_C_mm2": (
+        "mm2", "tracking_window", "active_700_frames", "arithmetic_mean", True,
+    ),
+    "mean_main_area_above_800_C_mm2": (
+        "mm2", "tracking_window", "active_700_frames", "arithmetic_mean", True,
+    ),
+    "mean_main_transverse_width_above_700_C_mm": (
+        "mm", "tracking_window", "active_700_frames", "arithmetic_mean", True,
+    ),
+    "mean_main_scan_length_above_700_C_mm": (
+        "mm", "tracking_window", "active_700_frames", "arithmetic_mean", True,
+    ),
+    "centroid_path_length_mm": (
+        "mm", "fixed_global_roi", "active_700_frames",
+        "sum_distances_between_adjacent_frames_without_crossing_missing_centroid_gaps",
+        True,
+    ),
+    "signed_scan_direction_displacement_mm": (
+        "mm", "fixed_global_roi", "active_700_frames",
+        "last_valid_y_mm_minus_first_valid_y_mm", False,
+    ),
+    "signed_transverse_drift_mm": (
+        "mm", "fixed_global_roi", "active_700_frames",
+        "last_valid_x_mm_minus_first_valid_x_mm", False,
+    ),
+    "centroid_transverse_jitter_mm": (
+        "mm", "fixed_global_roi", "active_700_frames",
+        "rms_residual_x_from_line_fit_x_equals_a_y_plus_b", True,
+    ),
+    "median_frame_p95_internal_gradient_magnitude_700_C_per_mm": (
+        "C_per_mm", "tracking_window", "active_700_frames",
+        "median_of_frame_p95_gradient_values", True,
+    ),
+    "mean_signed_thermal_centroid_offset_from_geometric_center_mm": (
+        "mm", "tracking_window", "active_700_frames", "arithmetic_mean", False,
+    ),
+    "mean_left_right_excess_temperature_asymmetry_700_fraction": (
+        "fraction", "tracking_window", "active_700_frames",
+        "arithmetic_mean", True,
+    ),
+    "hot_core_presence_duration_800_C_s": (
+        "s", "tracking_window", "effective_frames",
+        "active_800_frame_count / 52.0", True,
+    ),
+    "main_area_above_700_C_temporal_cv": (
+        "cv", "tracking_window", "active_700_frames",
+        "sample_std_area700_ddof1_divided_by_mean_area700", True,
+    ),
+}
 
 
-def _yaml():
-    with open(CONTRACT, "r", encoding="utf-8") as stream:
+def _yaml(path=CONTRACT):
+    with open(path, "r", encoding="utf-8") as stream:
         return yaml.safe_load(stream)
 
 
@@ -113,6 +191,111 @@ def test_expected_track_and_condition_rows():
     contract = load_thermal_feature_contract(CONTRACT)
     assert contract.track_level_output_contract.expected_rows == 57
     assert contract.condition_level_output_contract.expected_rows == 19
+
+
+def test_exact_core_feature_name_set():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert {feature.name for feature in contract.core_features} == EXPECTED_CORE_NAMES
+
+
+def test_each_core_feature_semantics_match_approved_contract():
+    contract = load_thermal_feature_contract(CONTRACT)
+    by_name = {feature.name: feature for feature in contract.core_features}
+    for name, expected in EXPECTED_CORE_SEMANTICS.items():
+        feature = by_name[name]
+        assert (
+            feature.unit,
+            feature.region,
+            feature.frame_population,
+            feature.track_aggregation,
+            feature.cv_applicable,
+        ) == expected
+
+
+def test_thresholds_match_xtherm_format():
+    cfg = _yaml()
+    xtherm = _yaml(XTHERM_CONFIG)
+    temp = cfg["temperature_validity"]
+    qc = xtherm["temperature_qc"]
+    assert temp["valid_min_C"] == qc["camera_valid_temperature_min_C"]
+    assert temp["valid_max_C"] == qc["camera_valid_temperature_max_C"]
+    assert temp["hard_saturation_threshold_C"] == qc["hard_saturation_threshold_C"]
+
+
+def test_valid_temperature_ordering():
+    cfg = _yaml()
+    temp = cfg["temperature_validity"]
+    thresholds = cfg["geometry_mask_policy"]["main_region_thresholds_C"]
+    assert temp["valid_min_C"] < temp["valid_max_C"] < temp["hard_saturation_threshold_C"]
+    assert thresholds["envelope"] == 700.0
+    assert thresholds["core"] == 800.0
+    assert temp["valid_min_C"] <= thresholds["envelope"] < thresholds["core"]
+    assert thresholds["core"] <= temp["valid_max_C"]
+
+
+def test_geometry_connectivity_is_eight():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert contract.geometry_mask_policy["connectivity"] == 8
+
+
+def test_min_component_area_is_nine():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert contract.geometry_mask_policy["min_component_area_px"] == 9
+
+
+def test_min_component_area_rejects_bool(tmp_path):
+    def mutate(cfg):
+        cfg["geometry_mask_policy"]["min_component_area_px"] = True
+
+    path = _write_variant(tmp_path, mutate)
+    with pytest.raises(ThermalFeatureContractError, match="min_component_area_px"):
+        load_thermal_feature_contract(path)
+
+
+def test_seed_required_for_main_region():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert contract.geometry_mask_policy["valid_hot_seed_required"] is True
+
+
+def test_expansion_requires_seed_connection():
+    contract = load_thermal_feature_contract(CONTRACT)
+    policy = contract.geometry_mask_policy
+    assert set(policy["expansion_candidates"]) == {"above_range", "hard_saturation"}
+    assert policy["expansion_requires_connection_to_valid_hot_seed"] is True
+
+
+def test_main_component_selection_is_largest_seeded():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert (
+        contract.geometry_mask_policy["main_component_selection"]
+        == "largest_seeded_connected_component"
+    )
+
+
+def test_internal_hole_filling_is_enabled():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert contract.geometry_mask_policy["fill_internal_holes"] is True
+
+
+def test_isolated_above_range_cannot_form_region():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert (
+        contract.geometry_mask_policy["isolated_above_range_can_form_main_region"]
+        is False
+    )
+
+
+def test_isolated_hard_saturation_cannot_form_region():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert (
+        contract.geometry_mask_policy["isolated_hard_saturation_can_form_main_region"]
+        is False
+    )
+
+
+def test_no_valid_seed_returns_empty_region():
+    contract = load_thermal_feature_contract(CONTRACT)
+    assert contract.geometry_mask_policy["no_valid_hot_seed_result"] == "empty_region"
 
 
 def test_bad_status_raises(tmp_path):

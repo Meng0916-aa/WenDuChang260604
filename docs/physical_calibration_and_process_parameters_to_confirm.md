@@ -2,10 +2,12 @@
 
 Status of the physical metadata for the 57-track experimental dataset. The
 machine-readable sources are `configs/physical_calibration.yaml` (spatial scale,
-image geometry, temperature range, frame rate, working distance, effective-frame
-rule) and `configs/experiments.yaml` (process parameters, fixed hardware params,
-powder feed, substrate, track repetition). The validated loader is
-`src/config/physical_calibration.py`.
+image geometry, frame rate, working distance, effective-frame rule, and process
+physical metadata), `configs/xtherm_format.yaml` (XTherm binary layout,
+raw-count scaling, camera-valid range, above-range/hard-saturation rules, and
+conversion-QC thresholds), and `configs/experiments.yaml` (process parameters,
+fixed hardware params, powder feed, substrate, track repetition). The physical
+calibration loader is `src/config/physical_calibration.py`.
 
 > **Most first-order parameters are now user-confirmed** (this freeze). The only
 > items still **not recorded** are emissivity, transmission, exposure time and
@@ -75,11 +77,18 @@ No physical zero/reference origin is defined in this phase. The scan direction i
 **user-defined** — a later scan-direction QC may *check* track motion but must
 **not** override this definition.
 
-## 3. Temperature calibration & measurement range — CONFIRMED
+## 3. XTherm format & measurement range — CONFIRMED
 
 Binary format (verified): `56-byte header + 640×512 little-endian uint16`,
 `T = raw × 0.1 °C`. The camera is quantitatively valid only over **300 – 1800 °C**
 (`measurement_range_status: confirmed`).
+
+Formal authority for these binary and temperature-validity values is
+`configs/xtherm_format.yaml`. `configs/physical_calibration.yaml` may retain a
+deprecated compatibility mirror for older metadata consumers, but the loader
+cross-checks the mirror against `configs/xtherm_format.yaml`; formal consumers
+must use the authoritative XTherm format config for binary layout and
+temperature-state thresholds.
 
 Four temperature states (raw matrices are **never** modified or truncated):
 
@@ -157,25 +166,30 @@ The response-surface factors are unchanged: laser power 300/450/600 W, scan spee
 
 ## 7. What can / cannot be computed now
 
-**Computable now** (apparent-temperature features; frame-rate now available):
-- valid-band temperature statistics (°C); robust peak **P99.9** (°C) within band;
-- above-range / hard-saturation pixel counts and ratios;
-- high-temperature **area (mm²)**; 700/800 °C isotherm region **width (mm)**;
-  hot-zone bounding-box size (mm);
-- scan-direction & transverse temperature gradient (°C/mm), **signed** center
-  offset (mm), left/right area asymmetry (scan geometry is now confirmed);
-- cooling rate (°C/s), high-temperature dwell time (s), temperature AUC (°C·s),
-  scan distance per frame (mm/frame), effective scan duration (s) (frame rate is
-  now confirmed at 52 fps).
+**Approved Core feature contract now supports** (design only; not executed):
+- camera-valid temperature statistics and valid-band robust **P99.9** process
+  peak;
+- above-range / hard-saturation pixel counts and ratios as QC-only fields;
+- 700/800 C main-region area, 700 C width and scan-direction length;
+- absolute trajectory, signed displacement/drift, transverse jitter;
+- internal 700 C-region gradient, thermal-centroid offset, and transverse
+  excess-temperature asymmetry;
+- 800 C core presence duration and 700 C area temporal CV.
+
+**Secondary and not formally enabled:** cooling/heating rate, time to peak,
+temperature AUC, peak fluctuation, and fixed-material-point thermal-cycle
+interpretations. The tracking-window P99.9 process curve is not a material-point
+thermal cycle, and `hot_core_presence_duration_800_C_s` is an 800 C core-region
+presence duration, not a material-point dwell time.
 
 **Still required before formal feature extraction** (not done in this task):
-unified ROI confirmation, invalid-pixel masking implementation, valid-temperature
-range masking implementation, final feature-definition review.
+pure-function frame-level and track-level feature computation modules, tested on
+synthetic arrays only.
 
 ## 8. Not run in this phase
 
-No unified ROI evaluation, no formal ROI crop, no effective-frame *detection*, no
-formal temperature-field feature extraction (script 10), no scripts 13–16, no ML,
-no response-surface fitting, no re-conversion or modification of the 57 matrices.
-This phase only **freezes** the calibration + process + camera + substrate
-metadata in the configs, the master generator, docs and tests.
+No formal ROI crop/generation, no effective-frame *detection*, no formal
+temperature-field feature extraction, no scripts 13–16, no ML, no
+response-surface fitting, no re-conversion or modification of the 57 matrices.
+The ROI strategy and formal feature contract are established but their execution
+gates remain closed.

@@ -1,9 +1,16 @@
 # ============================================================
 # Formal PHYSICAL CALIBRATION for the 57-track experimental dataset.
 #
-# Single source of truth for spatial scale + temperature binary calibration.
-# Formal feature/ROI programs MUST read the spatial scale from here (not from
-# the legacy pixel_size_mm in configs/default.yaml). User-confirmed.
+# Formal source for spatial scale, frame rate, image geometry, optical/process
+# metadata, and physical calibration. Formal feature/ROI programs MUST read the
+# spatial scale from here (not from the legacy pixel_size_mm in
+# configs/default.yaml). User-confirmed.
+#
+# Temperature binary layout, raw-count scaling, camera-valid range,
+# above_range/hard_saturation rules, and conversion-QC thresholds are
+# authoritative in configs/xtherm_format.yaml. Any temperature binary fields
+# retained below are deprecated compatibility mirrors and are cross-checked by
+# src/config/physical_calibration.py.
 # ============================================================
 
 schema_version: 1
@@ -61,6 +68,9 @@ image_geometry:
   #   No physical zero/reference origin is defined in this phase.
 
 temperature_calibration:
+  role: deprecated_compatibility_mirror
+  authoritative_source: configs/xtherm_format.yaml
+  formal_consumers_must_use_authoritative_source: true
   calibration_status: binary_format_verified
   header_bytes: 56
   raw_dtype: uint16

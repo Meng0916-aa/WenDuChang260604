@@ -1,10 +1,12 @@
 """
 Formal physical-calibration loader + validator.
 
-Single, testable entry point for the spatial scale and temperature binary
-calibration of the 57-track experimental dataset. Formal ROI / feature programs
-MUST obtain the pixel size from here, never from the legacy ``pixel_size_mm`` in
-configs/default.yaml.
+Single, testable entry point for the spatial scale, frame rate, image geometry,
+and physical process metadata of the 57-track experimental dataset. Formal ROI /
+feature programs MUST obtain the pixel size from here, never from the legacy
+``pixel_size_mm`` in configs/default.yaml. XTherm binary format and temperature
+validity are authoritative in configs/xtherm_format.yaml; deprecated mirror
+fields retained here are cross-checked against that authority.
 
 Guarantees enforced on load (formal mode):
   - required spatial fields are present and positive;
@@ -21,6 +23,8 @@ Guarantees enforced on load (formal mode):
 import os
 import yaml
 
+from config.xtherm_format import load_xtherm_format
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _REQUIRED_SPATIAL = (
@@ -32,6 +36,7 @@ _REQUIRED_SPATIAL = (
 
 _AREA_REL_TOL = 1e-4   # pixel_area vs x*y
 _ISO_ABS_TOL = 1e-9    # x vs y when isotropic
+_XTherm_FORMAT_CONFIG = "configs/xtherm_format.yaml"
 
 
 class CalibrationError(ValueError):
@@ -254,6 +259,73 @@ def _validate(cfg, path, formal):
             raise CalibrationError(
                 "dual active calibration: legacy_calibration."
                 "enabled_for_formal_processing must be false in formal mode.")
+        _validate_temperature_compatibility_mirror(cfg, path)
+
+
+def _validate_temperature_compatibility_mirror(cfg, path):
+    """Cross-check deprecated temperature mirror fields against xtherm_format."""
+    if "temperature_calibration" not in cfg:
+        return
+
+    temp = cfg["temperature_calibration"]
+    if temp.get("role") != "deprecated_compatibility_mirror":
+        raise CalibrationError(
+            "temperature_calibration.role must be "
+            "'deprecated_compatibility_mirror'; formal temperature format "
+            f"authority is {_XTherm_FORMAT_CONFIG}")
+    if temp.get("authoritative_source") != _XTherm_FORMAT_CONFIG:
+        raise CalibrationError(
+            "temperature_calibration.authoritative_source must be "
+            f"{_XTherm_FORMAT_CONFIG!r}")
+    if temp.get("formal_consumers_must_use_authoritative_source") is not True:
+        raise CalibrationError(
+            "temperature_calibration.formal_consumers_must_use_authoritative_source "
+            "must be true")
+
+    xtherm_path = os.path.join(_ROOT, _XTherm_FORMAT_CONFIG)
+    xtherm = load_xtherm_format(xtherm_path)
+    geom = cfg.get("image_geometry", {})
+    comparisons = (
+        ("image_geometry.image_height_px", geom.get("image_height_px"),
+         xtherm.height_px),
+        ("image_geometry.image_width_px", geom.get("image_width_px"),
+         xtherm.width_px),
+        ("temperature_calibration.header_bytes", temp.get("header_bytes"),
+         xtherm.header_bytes),
+        ("temperature_calibration.raw_dtype", temp.get("raw_dtype"),
+         xtherm.raw_dtype),
+        ("temperature_calibration.byte_order", temp.get("byte_order"),
+         xtherm.byte_order),
+        ("temperature_calibration.scale_C_per_count",
+         temp.get("scale_C_per_count"), xtherm.scale_C_per_count),
+        ("temperature_calibration.valid_temperature_min_C",
+         temp.get("valid_temperature_min_C"),
+         xtherm.camera_valid_temperature_min_C),
+        ("temperature_calibration.valid_temperature_max_C",
+         temp.get("valid_temperature_max_C"),
+         xtherm.camera_valid_temperature_max_C),
+        ("temperature_calibration.hard_saturation_threshold_C",
+         temp.get("hard_saturation_threshold_C"),
+         xtherm.hard_saturation_threshold_C),
+    )
+
+    for field, mirror_value, authoritative_value in comparisons:
+        if _normalized_scalar(mirror_value) != _normalized_scalar(authoritative_value):
+            raise CalibrationError(
+                f"{field} conflicts between {path} and {_XTherm_FORMAT_CONFIG}: "
+                f"physical_calibration.yaml={mirror_value!r}, "
+                f"xtherm_format.yaml={authoritative_value!r}")
+
+
+def _normalized_scalar(value):
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, int):
+        return value
+    try:
+        return round(float(value), 12)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def load_physical_calibration(path="configs/physical_calibration.yaml", formal=True):
